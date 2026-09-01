@@ -41,6 +41,10 @@ def is_allowed(user_id):
 
 SOURCE_CHAT_ID = int(os.environ["SOURCE_CHAT_ID"])
 
+# قناة إضافية: النشر منها مسموح فقط للقناة الخاصة بهذا الشخص
+SPECIAL_SOURCE_CHAT_ID = -1002239341307
+SPECIAL_OWNER_ID = 5578623360
+
 TARGET_CHAT_IDS = [
     int(x.strip())
     for x in os.environ["TARGET_CHAT_IDS"].split(",")
@@ -94,7 +98,7 @@ def init_db():
         conn.close()
 
 
-def save_mapping(source_message_id, target_chat_id, target_message_id):
+def save_mapping(source_message_id, target_chat_id, target_message_id, source_chat_id=SOURCE_CHAT_ID):
     conn = sqlite3.connect(DB_FILE, timeout=30)
     try:
         conn.execute("""
@@ -106,7 +110,7 @@ def save_mapping(source_message_id, target_chat_id, target_message_id):
             )
             VALUES (?, ?, ?, ?)
         """, (
-            SOURCE_CHAT_ID,
+            source_chat_id,
             source_message_id,
             target_chat_id,
             target_message_id
@@ -116,7 +120,7 @@ def save_mapping(source_message_id, target_chat_id, target_message_id):
         conn.close()
 
 
-def get_mappings(source_message_id):
+def get_mappings(source_message_id, source_chat_id=SOURCE_CHAT_ID):
     conn = sqlite3.connect(DB_FILE, timeout=30)
     try:
         return conn.execute("""
@@ -125,21 +129,21 @@ def get_mappings(source_message_id):
             WHERE source_chat_id = ? AND source_message_id = ?
             ORDER BY target_chat_id
         """, (
-            SOURCE_CHAT_ID,
+            source_chat_id,
             source_message_id
         )).fetchall()
     finally:
         conn.close()
 
 
-def delete_mappings(source_message_id):
+def delete_mappings(source_message_id, source_chat_id=SOURCE_CHAT_ID):
     conn = sqlite3.connect(DB_FILE, timeout=30)
     try:
         conn.execute("""
             DELETE FROM message_map
             WHERE source_chat_id = ? AND source_message_id = ?
         """, (
-            SOURCE_CHAT_ID,
+            source_chat_id,
             source_message_id
         ))
         conn.commit()
@@ -219,7 +223,7 @@ async def send_to_target(message, target_chat_id, reply_to=None):
 # PUBLISH MESSAGE
 # ============================================================
 
-async def publish_message(message):
+async def publish_message(message, source_chat_id=SOURCE_CHAT_ID):
     logger.info("PUBLISH SOURCE MESSAGE: %s", message.id)
 
     parent_source_id = None
@@ -229,7 +233,7 @@ async def publish_message(message):
 
     parent_mappings = {}
     if parent_source_id is not None:
-        rows = get_mappings(parent_source_id)
+        rows = get_mappings(parent_source_id, source_chat_id)
         parent_mappings = {
             int(target_chat_id): int(target_message_id)
             for target_chat_id, target_message_id in rows
@@ -255,7 +259,7 @@ async def publish_message(message):
             logger.error("COPY FAILED | SOURCE=%s | TARGET=%s", message.id, target_chat_id)
             continue
 
-        save_mapping(message.id, target_chat_id, target_message_id)
+        save_mapping(message.id, target_chat_id, target_message_id, source_chat_id)
         success += 1
         logger.info("COPIED | SOURCE=%s -> TARGET=%s:%s", message.id, target_chat_id, target_message_id)
 
@@ -315,8 +319,8 @@ async def source_edit_message(event):
         logger.exception("EDIT HANDLER ERROR: %s", e)
 
 
-async def delete_source_message(source_message_id):
-    mappings = get_mappings(source_message_id)
+async def delete_source_message(source_message_id, source_chat_id=SOURCE_CHAT_ID):
+    mappings = get_mappings(source_message_id, source_chat_id)
     if not mappings:
         logger.warning("NO MAPPING FOR DELETE | SOURCE=%s", source_message_id)
         return
@@ -333,7 +337,7 @@ async def delete_source_message(source_message_id):
             logger.info("DELETED | SOURCE=%s -> TARGET=%s:%s", source_message_id, target_chat_id, target_message_id)
         await asyncio.sleep(0.3)
 
-    delete_mappings(source_message_id)
+    delete_mappings(source_message_id, source_chat_id)
 
 
 @client.on(events.MessageDeleted(chats=SOURCE_CHAT_ID))
@@ -344,6 +348,83 @@ async def source_deleted_message(event):
             await delete_source_message(message_id)
     except Exception as e:
         logger.exception("DELETE HANDLER ERROR: %s", e)
+
+
+# ============================================================
+# SPECIAL ADDITIONAL CHANNEL
+# -1002239341307 is an additional source only.
+# The Telegram Bot API/Telethon normally identifies channel posts
+# by the CHANNEL itself, not by the human who pressed Publish.
+# Therefore the access control is the private channel itself;
+# only the intended owner should have posting rights in that channel.
+# ============================================================
+
+@client.on(events.NewMessage(chats=SPECIAL_SOURCE_CHAT_ID))
+async def special_channel_new_message(event):
+    try:
+        message = event.message
+        text = message.raw_text or ""
+        if not text.strip() or text.startswith("/"):
+            return
+
+        logger.info(
+            "NEW SPECIAL CHANNEL MESSAGE | ID=%s | SENDER=%s | OWNER=%s | REPLY_TO=%s",
+            message.id,
+            event.sender_id,
+            SPECIAL_OWNER_ID,
+            message.reply_to_msg_id
+        )
+
+        # The special source is fixed to the private channel.
+        # Do NOT change the normal SOURCE_CHAT_ID behavior.
+        await publish_message(message, SPECIAL_SOURCE_CHAT_ID)
+    except Exception as e:
+        logger.exception("SPECIAL CHANNEL NEW MESSAGE ERROR: %s", e)
+
+
+@client.on(events.MessageEdited(chats=SPECIAL_SOURCE_CHAT_ID))
+async def special_channel_edit_message(event):
+    try:
+        message = event.message
+        text = message.raw_text or ""
+        if not text.strip() or text.startswith("/"):
+            return
+
+        mappings = get_mappings(message.id, SPECIAL_SOURCE_CHAT_ID)
+        if not mappings:
+            logger.warning("NO SPECIAL MAPPING FOR EDIT | SOURCE=%s", message.id)
+            return
+
+        for target_chat_id, target_message_id in mappings:
+            result = await run_with_retry(
+                client.edit_message,
+                target_chat_id,
+                target_message_id,
+                text,
+                formatting_entities=message.entities
+            )
+            if result is not None:
+                logger.info(
+                    "SPECIAL EDITED | SOURCE=%s -> TARGET=%s:%s",
+                    message.id, target_chat_id, target_message_id
+                )
+            await asyncio.sleep(0.3)
+    except Exception as e:
+        logger.exception("SPECIAL EDIT HANDLER ERROR: %s", e)
+
+
+@client.on(events.MessageDeleted(chats=SPECIAL_SOURCE_CHAT_ID))
+async def special_channel_deleted_message(event):
+    try:
+        logger.info(
+            "SPECIAL DELETE EVENT | SOURCE=%s | IDS=%s",
+            SPECIAL_SOURCE_CHAT_ID,
+            event.deleted_ids
+        )
+        for message_id in event.deleted_ids:
+            await delete_source_message(message_id, SPECIAL_SOURCE_CHAT_ID)
+    except Exception as e:
+        logger.exception("SPECIAL DELETE HANDLER ERROR: %s", e)
 
 
 @client.on(events.NewMessage(chats=SOURCE_CHAT_ID, pattern=r"^/del$"))
@@ -426,6 +507,7 @@ async def main():
     logger.info("========================================")
     logger.info("LEX AUTO PUBLISHER PRO - %s", BOT_NAME)
     logger.info("SOURCE: %s", SOURCE_CHAT_ID)
+    logger.info("SPECIAL SOURCE: %s | OWNER: %s", SPECIAL_SOURCE_CHAT_ID, SPECIAL_OWNER_ID)
     logger.info("TARGETS: %s", TARGET_CHAT_IDS)
     logger.info("DATABASE: %s", DB_FILE)
 
