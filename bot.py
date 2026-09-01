@@ -42,8 +42,10 @@ def is_allowed(user_id):
 SOURCE_CHAT_ID = int(os.environ["SOURCE_CHAT_ID"])
 
 # قناة إضافية: النشر منها مسموح فقط للقناة الخاصة بهذا الشخص
-SPECIAL_SOURCE_CHAT_ID = -1002239341307
-SPECIAL_OWNER_ID = 5578623360
+SPECIAL_CHANNELS = {
+    -1002239341307: 5578623360,
+    -1002895996910: 1760181851,
+}
 
 TARGET_CHAT_IDS = [
     int(x.strip())
@@ -351,81 +353,79 @@ async def source_deleted_message(event):
 
 
 # ============================================================
-# SPECIAL ADDITIONAL CHANNEL
-# -1002239341307 is an additional source only.
-# The Telegram Bot API/Telethon normally identifies channel posts
-# by the CHANNEL itself, not by the human who pressed Publish.
-# Therefore the access control is the private channel itself;
-# only the intended owner should have posting rights in that channel.
+# SPECIAL ADDITIONAL CHANNELS
+# These channels are EXTRA sources. The normal source remains unchanged.
+# Telegram channel posts are normally identified by the channel itself,
+# not by the human account that pressed Publish.
+# Therefore each channel must be private/restricted so only its owner
+# can publish there.
 # ============================================================
 
-@client.on(events.NewMessage(chats=SPECIAL_SOURCE_CHAT_ID))
-async def special_channel_new_message(event):
-    try:
-        message = event.message
-        text = message.raw_text or ""
-        if not text.strip() or text.startswith("/"):
-            return
+for _special_chat_id, _special_owner_id in SPECIAL_CHANNELS.items():
 
-        logger.info(
-            "NEW SPECIAL CHANNEL MESSAGE | ID=%s | SENDER=%s | OWNER=%s | REPLY_TO=%s",
-            message.id,
-            event.sender_id,
-            SPECIAL_OWNER_ID,
-            message.reply_to_msg_id
-        )
+    @client.on(events.NewMessage(chats=_special_chat_id))
+    async def special_channel_new_message(event, special_chat_id=_special_chat_id, special_owner_id=_special_owner_id):
+        try:
+            message = event.message
+            text = message.raw_text or ""
+            if not text.strip() or text.startswith("/"):
+                return
 
-        # The special source is fixed to the private channel.
-        # Do NOT change the normal SOURCE_CHAT_ID behavior.
-        await publish_message(message, SPECIAL_SOURCE_CHAT_ID)
-    except Exception as e:
-        logger.exception("SPECIAL CHANNEL NEW MESSAGE ERROR: %s", e)
-
-
-@client.on(events.MessageEdited(chats=SPECIAL_SOURCE_CHAT_ID))
-async def special_channel_edit_message(event):
-    try:
-        message = event.message
-        text = message.raw_text or ""
-        if not text.strip() or text.startswith("/"):
-            return
-
-        mappings = get_mappings(message.id, SPECIAL_SOURCE_CHAT_ID)
-        if not mappings:
-            logger.warning("NO SPECIAL MAPPING FOR EDIT | SOURCE=%s", message.id)
-            return
-
-        for target_chat_id, target_message_id in mappings:
-            result = await run_with_retry(
-                client.edit_message,
-                target_chat_id,
-                target_message_id,
-                text,
-                formatting_entities=message.entities
+            logger.info(
+                "NEW SPECIAL CHANNEL MESSAGE | CHANNEL=%s | ID=%s | SENDER=%s | OWNER=%s | REPLY_TO=%s",
+                special_chat_id,
+                message.id,
+                event.sender_id,
+                special_owner_id,
+                message.reply_to_msg_id
             )
-            if result is not None:
-                logger.info(
-                    "SPECIAL EDITED | SOURCE=%s -> TARGET=%s:%s",
-                    message.id, target_chat_id, target_message_id
+
+            await publish_message(message, special_chat_id)
+        except Exception as e:
+            logger.exception("SPECIAL CHANNEL NEW MESSAGE ERROR: %s", e)
+
+    @client.on(events.MessageEdited(chats=_special_chat_id))
+    async def special_channel_edit_message(event, special_chat_id=_special_chat_id):
+        try:
+            message = event.message
+            text = message.raw_text or ""
+            if not text.strip() or text.startswith("/"):
+                return
+
+            mappings = get_mappings(message.id, special_chat_id)
+            if not mappings:
+                logger.warning("NO SPECIAL MAPPING FOR EDIT | SOURCE=%s", message.id)
+                return
+
+            for target_chat_id, target_message_id in mappings:
+                result = await run_with_retry(
+                    client.edit_message,
+                    target_chat_id,
+                    target_message_id,
+                    text,
+                    formatting_entities=message.entities
                 )
-            await asyncio.sleep(0.3)
-    except Exception as e:
-        logger.exception("SPECIAL EDIT HANDLER ERROR: %s", e)
+                if result is not None:
+                    logger.info(
+                        "SPECIAL EDITED | SOURCE=%s -> TARGET=%s:%s",
+                        message.id, target_chat_id, target_message_id
+                    )
+                await asyncio.sleep(0.3)
+        except Exception as e:
+            logger.exception("SPECIAL EDIT HANDLER ERROR: %s", e)
 
-
-@client.on(events.MessageDeleted(chats=SPECIAL_SOURCE_CHAT_ID))
-async def special_channel_deleted_message(event):
-    try:
-        logger.info(
-            "SPECIAL DELETE EVENT | SOURCE=%s | IDS=%s",
-            SPECIAL_SOURCE_CHAT_ID,
-            event.deleted_ids
-        )
-        for message_id in event.deleted_ids:
-            await delete_source_message(message_id, SPECIAL_SOURCE_CHAT_ID)
-    except Exception as e:
-        logger.exception("SPECIAL DELETE HANDLER ERROR: %s", e)
-
+    @client.on(events.MessageDeleted(chats=_special_chat_id))
+    async def special_channel_deleted_message(event, special_chat_id=_special_chat_id):
+        try:
+            logger.info(
+                "SPECIAL DELETE EVENT | SOURCE=%s | IDS=%s",
+                special_chat_id,
+                event.deleted_ids
+            )
+            for message_id in event.deleted_ids:
+                await delete_source_message(message_id, special_chat_id)
+        except Exception as e:
+            logger.exception("SPECIAL DELETE HANDLER ERROR: %s", e)
 
 @client.on(events.NewMessage(chats=SOURCE_CHAT_ID, pattern=r"^/del$"))
 async def del_handler(event):
@@ -528,3 +528,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("LEX STOPPED")
+ 
