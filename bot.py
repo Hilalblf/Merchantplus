@@ -354,11 +354,6 @@ async def source_deleted_message(event):
 
 # ============================================================
 # SPECIAL ADDITIONAL CHANNELS
-# These channels are EXTRA sources. The normal source remains unchanged.
-# Telegram channel posts are normally identified by the channel itself,
-# not by the human account that pressed Publish.
-# Therefore each channel must be private/restricted so only its owner
-# can publish there.
 # ============================================================
 
 for _special_chat_id, _special_owner_id in SPECIAL_CHANNELS.items():
@@ -507,7 +502,7 @@ async def main():
     logger.info("========================================")
     logger.info("LEX AUTO PUBLISHER PRO - %s", BOT_NAME)
     logger.info("SOURCE: %s", SOURCE_CHAT_ID)
-    logger.info("SPECIAL SOURCE: %s | OWNER: %s", SPECIAL_SOURCE_CHAT_ID, SPECIAL_OWNER_ID)
+    logger.info("SPECIAL CHANNELS: %s", SPECIAL_CHANNELS)
     logger.info("TARGETS: %s", TARGET_CHAT_IDS)
     logger.info("DATABASE: %s", DB_FILE)
 
@@ -528,3 +523,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("LEX STOPPED")
+ 
