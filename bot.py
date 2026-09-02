@@ -43,6 +43,13 @@ FRIEND_USER_ID = 1154384855
 FRIEND_CHANNEL_ID = -1001716893195
 
 # ============================================================
+# مستخدم ممنوع من مجموعة واحدة محددة (بينشر في الباقي عادي)
+# ============================================================
+
+EXCLUDED_USER_ID = 1487551640
+EXCLUDED_GROUP_ID = -1003376621047
+
+# ============================================================
 # SOURCE & TARGETS
 # ============================================================
 
@@ -274,6 +281,12 @@ async def publish_message(message, source_chat_id=SOURCE_CHAT_ID):
         if FRIEND_CHANNEL_ID not in all_targets:
             all_targets.append(FRIEND_CHANNEL_ID)
             logger.info("FRIEND MESSAGE DETECTED | ADDING CHANNEL %s TO TARGETS", FRIEND_CHANNEL_ID)
+
+    # المستخدم الممنوع من مجموعة واحدة: بتتشال المجموعة دي من قائمة النشر لرسائله فقط
+    if message.sender_id == EXCLUDED_USER_ID:
+        if EXCLUDED_GROUP_ID in all_targets:
+            all_targets = [t for t in all_targets if t != EXCLUDED_GROUP_ID]
+            logger.info("EXCLUDED USER MESSAGE DETECTED | REMOVING GROUP %s FROM TARGETS", EXCLUDED_GROUP_ID)
 
     for target_chat_id in all_targets:
         target_chat_id = int(target_chat_id)
@@ -515,3 +528,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("LEX STOPPED")
+ 
