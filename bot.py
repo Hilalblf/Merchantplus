@@ -10,13 +10,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ============================================================
-# LEX AUTO PUBLISHER PRO - BOT 2 (USERBOT)
+# LEX AUTO PUBLISHER PRO - BOT 2
 # ============================================================
 
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 
+# اسم أو معرف البوت للتمييز في اللوغات
 BOT_NAME = os.getenv("BOT_NAME", "BOT_2")
 
 # ============================================================
@@ -29,13 +30,17 @@ ALLOWED_USER_IDS = [
     if x.strip()
 ]
 
-FRIEND_USER_ID = 1154384855
-FRIEND_CHANNEL_ID = -1001716893195
-
 
 def is_allowed(user_id):
     return user_id in ALLOWED_USER_IDS
 
+
+# ============================================================
+# الصديق: ينشر رسائله في نفس الـ 5 مجموعات + قناة إضافية خاصة به فقط
+# ============================================================
+
+FRIEND_USER_ID = 1154384855
+FRIEND_CHANNEL_ID = -1001716893195
 
 # ============================================================
 # SOURCE & TARGETS
@@ -43,6 +48,7 @@ def is_allowed(user_id):
 
 SOURCE_CHAT_ID = int(os.environ["SOURCE_CHAT_ID"])
 
+# قناة إضافية: النشر منها مسموح فقط للقناة الخاصة بهذا الشخص
 SPECIAL_CHANNELS = {
     -1002239341307: 5578623360,
     -1002895996910: 1760181851,
@@ -55,7 +61,7 @@ TARGET_CHAT_IDS = [
 ]
 
 # ============================================================
-# DATABASE
+# DATABASE (مستقلة خاصة بالبوت الثاني)
 # ============================================================
 
 DB_FILE = os.getenv(
@@ -176,12 +182,4 @@ async def run_with_retry(func, *args, **kwargs):
         try:
             return await func(*args, **kwargs)
         except FloodWaitError as e:
-            logger.warning("FloodWait: %s seconds", e.seconds)
-            await asyncio.sleep(e.seconds + 1)
-        except RPCError as e:
-            logger.error("Telegram RPC error: %s", e)
-            if attempt >= 2:
-                return None
-            await asyncio.sleep(2)
-        except Exception as e:
-            logger.exception("Operation error: %s", e)
+            logger.warning("FloodWait: %s seconds",
