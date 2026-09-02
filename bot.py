@@ -184,4 +184,4 @@ async def run_with_retry(func, *args, **kwargs):
                 return None
             await asyncio.sleep(2)
         except Exception as e:
-            logger.exception("Operation error: %
+            logger.exception("Operation error: %s", e)
