@@ -29,9 +29,7 @@ ALLOWED_USER_IDS = [
     if x.strip()
 ]
 
-# معرف الصديق المقصود
 FRIEND_USER_ID = 1154384855
-# قناته الخاصة التي سترسل لها رسائله أيضاً
 FRIEND_CHANNEL_ID = -1001716893195
 
 
@@ -185,4 +183,5 @@ async def run_with_retry(func, *args, **kwargs):
             if attempt >= 2:
                 return None
             await asyncio.sleep(2)
-        except 
+        except Exception as e:
+            logger.exception("Operation error: %
