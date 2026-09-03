@@ -17,11 +17,11 @@ API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 
-# اسم أو معرف البوت للتمييز في اللوغات
+# Ø§Ø³Ù… Ø£Ùˆ Ù…Ø¹Ø±Ù Ø§Ù„Ø¨ÙˆØª Ù„Ù„ØªÙ…ÙŠÙŠØ² ÙÙŠ Ø§Ù„Ù„ÙˆØºØ§Øª
 BOT_NAME = os.getenv("BOT_NAME", "BOT_2")
 
 # ============================================================
-# ALLOWED USERS (OWNERS - صلاحيات كاملة)
+# ALLOWED USERS (OWNERS - ØµÙ„Ø§Ø­ÙŠØ§Øª ÙƒØ§Ù…Ù„Ø©)
 # ============================================================
 
 ALLOWED_USER_IDS = [
@@ -32,7 +32,7 @@ ALLOWED_USER_IDS = [
 
 
 def is_allowed(user_id):
-    """Owner رئيسي - صلاحيات كاملة على SOURCE_CHAT_ID"""
+    """Owner Ø±Ø¦ÙŠØ³ÙŠ - ØµÙ„Ø§Ø­ÙŠØ§Øª ÙƒØ§Ù…Ù„Ø© Ø¹Ù„Ù‰ SOURCE_CHAT_ID"""
     return user_id in ALLOWED_USER_IDS
 
 
@@ -42,26 +42,30 @@ def is_allowed(user_id):
 
 SOURCE_CHAT_ID = int(os.environ["SOURCE_CHAT_ID"])
 
-# قناة إضافية: النشر منها مسموح فقط للقناة الخاصة بهذا الشخص
-# (هاد الميكانيزم بقا خاص فقط بـ -1002239341307 / صاحبها 5578623360)
+# Ù‚Ù†Ø§Ø© Ø¥Ø¶Ø§ÙÙŠØ©: Ø§Ù„Ù†Ø´Ø± Ù…Ù†Ù‡Ø§ Ù…Ø³Ù…ÙˆØ­ ÙÙ‚Ø· Ù„Ù„Ù‚Ù†Ø§Ø© Ø§Ù„Ø®Ø§ØµØ© Ø¨Ù‡Ø°Ø§ Ø§Ù„Ø´Ø®Øµ
+# (Ù‡Ø§Ø¯ Ø§Ù„Ù…ÙŠÙƒØ§Ù†ÙŠØ²Ù… Ø¨Ù‚Ø§ Ø®Ø§Øµ ÙÙ‚Ø· Ø¨Ù€ -1002239341307 / ØµØ§Ø­Ø¨Ù‡Ø§ 5578623360)
 SPECIAL_CHANNELS = {
     -1002239341307: 5578623360,
 }
 
 
 def is_channel_owner(user_id, chat_id):
-    """ واش هاد اليوزر هو صاحب القناة الخاصة (SPECIAL_CHANNELS) اللي الأمر توجه منها. صاحب القناة يقدر غير يدير /del و/status على الرسائل اللي جاية من قناته هو بالضبط. """
+    """
+    ÙˆØ§Ø´ Ù‡Ø§Ø¯ Ø§Ù„ÙŠÙˆØ²Ø± Ù‡Ùˆ ØµØ§Ø­Ø¨ Ø§Ù„Ù‚Ù†Ø§Ø© Ø§Ù„Ø®Ø§ØµØ© (SPECIAL_CHANNELS) Ø§Ù„Ù„ÙŠ
+    Ø§Ù„Ø£Ù…Ø± ØªÙˆØ¬Ù‡ Ù…Ù†Ù‡Ø§. ØµØ§Ø­Ø¨ Ø§Ù„Ù‚Ù†Ø§Ø© ÙŠÙ‚Ø¯Ø± ØºÙŠØ± ÙŠØ¯ÙŠØ± /del Ùˆ/status
+    Ø¹Ù„Ù‰ Ø§Ù„Ø±Ø³Ø§Ø¦Ù„ Ø§Ù„Ù„ÙŠ Ø¬Ø§ÙŠØ© Ù…Ù† Ù‚Ù†Ø§ØªÙ‡ Ù‡Ùˆ Ø¨Ø§Ù„Ø¶Ø¨Ø·.
+    """
     return SPECIAL_CHANNELS.get(chat_id) == user_id
 
 
 # ============================================================
 # PERSONAL CHANNEL COPY
 #
-# صديقك كيكتب عادي فـ SOURCE_CHAT_ID بحال الجميع، والبوت كيبعث
-# رسالتو للمجموعات (TARGET_CHAT_IDS) بحال العادة. زيادة على هادشي،
-# كيبعث البوت copy زايدة ديال رسالتو هو بالضبط لقناته الخاصة.
+# ØµØ¯ÙŠÙ‚Ùƒ ÙƒÙŠÙƒØªØ¨ Ø¹Ø§Ø¯ÙŠ ÙÙ€ SOURCE_CHAT_ID Ø¨Ø­Ø§Ù„ Ø§Ù„Ø¬Ù…ÙŠØ¹ØŒ ÙˆØ§Ù„Ø¨ÙˆØª ÙƒÙŠØ¨Ø¹Ø«
+# Ø±Ø³Ø§Ù„ØªÙˆ Ù„Ù„Ù…Ø¬Ù…ÙˆØ¹Ø§Øª (TARGET_CHAT_IDS) Ø¨Ø­Ø§Ù„ Ø§Ù„Ø¹Ø§Ø¯Ø©. Ø²ÙŠØ§Ø¯Ø© Ø¹Ù„Ù‰ Ù‡Ø§Ø¯Ø´ÙŠØŒ
+# ÙƒÙŠØ¨Ø¹Ø« Ø§Ù„Ø¨ÙˆØª copy Ø²Ø§ÙŠØ¯Ø© Ø¯ÙŠØ§Ù„ Ø±Ø³Ø§Ù„ØªÙˆ Ù‡Ùˆ Ø¨Ø§Ù„Ø¶Ø¨Ø· Ù„Ù‚Ù†Ø§ØªÙ‡ Ø§Ù„Ø®Ø§ØµØ©.
 #
-# user_id -> channel_id (القناة ديالو هو غير)
+# user_id -> channel_id (Ø§Ù„Ù‚Ù†Ø§Ø© Ø¯ÙŠØ§Ù„Ùˆ Ù‡Ùˆ ØºÙŠØ±)
 # ============================================================
 
 PERSONAL_CHANNELS = {
@@ -76,7 +80,7 @@ TARGET_CHAT_IDS = [
 ]
 
 # ============================================================
-# DATABASE (مستقلة خاصة بالبوت الثاني)
+# DATABASE (Ù…Ø³ØªÙ‚Ù„Ø© Ø®Ø§ØµØ© Ø¨Ø§Ù„Ø¨ÙˆØª Ø§Ù„Ø«Ø§Ù†ÙŠ)
 # ============================================================
 
 DB_FILE = os.getenv(
@@ -103,7 +107,20 @@ logger = logging.getLogger(BOT_NAME)
 def init_db():
     conn = sqlite3.connect(DB_FILE, timeout=30)
     try:
-        conn.execute(""" CREATE TABLE IF NOT EXISTS message_map ( source_chat_id INTEGER NOT NULL, source_message_id INTEGER NOT NULL, target_chat_id INTEGER NOT NULL, target_message_id INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY ( source_chat_id, source_message_id, target_chat_id ) ) """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS message_map (
+                source_chat_id INTEGER NOT NULL,
+                source_message_id INTEGER NOT NULL,
+                target_chat_id INTEGER NOT NULL,
+                target_message_id INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (
+                    source_chat_id,
+                    source_message_id,
+                    target_chat_id
+                )
+            )
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -112,7 +129,15 @@ def init_db():
 def save_mapping(source_message_id, target_chat_id, target_message_id, source_chat_id=SOURCE_CHAT_ID):
     conn = sqlite3.connect(DB_FILE, timeout=30)
     try:
-        conn.execute(""" INSERT OR REPLACE INTO message_map ( source_chat_id, source_message_id, target_chat_id, target_message_id ) VALUES (?, ?, ?, ?) """, (
+        conn.execute("""
+            INSERT OR REPLACE INTO message_map (
+                source_chat_id,
+                source_message_id,
+                target_chat_id,
+                target_message_id
+            )
+            VALUES (?, ?, ?, ?)
+        """, (
             source_chat_id,
             source_message_id,
             target_chat_id,
@@ -126,7 +151,12 @@ def save_mapping(source_message_id, target_chat_id, target_message_id, source_ch
 def get_mappings(source_message_id, source_chat_id=SOURCE_CHAT_ID):
     conn = sqlite3.connect(DB_FILE, timeout=30)
     try:
-        return conn.execute(""" SELECT target_chat_id, target_message_id FROM message_map WHERE source_chat_id = ? AND source_message_id = ? ORDER BY target_chat_id """, (
+        return conn.execute("""
+            SELECT target_chat_id, target_message_id
+            FROM message_map
+            WHERE source_chat_id = ? AND source_message_id = ?
+            ORDER BY target_chat_id
+        """, (
             source_chat_id,
             source_message_id
         )).fetchall()
@@ -137,7 +167,10 @@ def get_mappings(source_message_id, source_chat_id=SOURCE_CHAT_ID):
 def delete_mappings(source_message_id, source_chat_id=SOURCE_CHAT_ID):
     conn = sqlite3.connect(DB_FILE, timeout=30)
     try:
-        conn.execute(""" DELETE FROM message_map WHERE source_chat_id = ? AND source_message_id = ? """, (
+        conn.execute("""
+            DELETE FROM message_map
+            WHERE source_chat_id = ? AND source_message_id = ?
+        """, (
             source_chat_id,
             source_message_id
         ))
@@ -235,7 +268,7 @@ async def publish_message(message, source_chat_id=SOURCE_CHAT_ID, extra_targets=
         }
         logger.info("PARENT MAPPINGS FOUND: %s", parent_mappings)
 
-    # TARGETS العادية + أي targets زايدة (بحال القناة الخاصة الشخصية)
+    # TARGETS Ø§Ù„Ø¹Ø§Ø¯ÙŠØ© + Ø£ÙŠ targets Ø²Ø§ÙŠØ¯Ø© (Ø¨Ø­Ø§Ù„ Ø§Ù„Ù‚Ù†Ø§Ø© Ø§Ù„Ø®Ø§ØµØ© Ø§Ù„Ø´Ø®ØµÙŠØ©)
     all_targets = list(TARGET_CHAT_IDS) + list(extra_targets or [])
 
     success = 0
@@ -267,7 +300,7 @@ async def publish_message(message, source_chat_id=SOURCE_CHAT_ID, extra_targets=
 
 
 # ============================================================
-# SHARED DELETE HELPER (يستخدمها /del فـ SOURCE وفـ SPECIAL CHANNELS)
+# SHARED DELETE HELPER (ÙŠØ³ØªØ®Ø¯Ù…Ù‡Ø§ /del ÙÙ€ SOURCE ÙˆÙÙ€ SPECIAL CHANNELS)
 # ============================================================
 
 async def delete_source_message(source_message_id, source_chat_id=SOURCE_CHAT_ID):
@@ -297,9 +330,14 @@ async def delete_source_message(source_message_id, source_chat_id=SOURCE_CHAT_ID
 
 
 async def handle_manual_delete(event, source_chat_id):
-    """ منطق /del المشترك: كيتأكد Reply، كيجيب mappings من نفس source_chat_id (يعني كل قناة كتقدر تمسح غير الرسائل اللي خرجت منها هي)، كيمسح النسخ فـ targets، الرسالة الأصلية، وأمر /del نفسو. """
+    """
+    Ù…Ù†Ø·Ù‚ /del Ø§Ù„Ù…Ø´ØªØ±Ùƒ: ÙƒÙŠØªØ£ÙƒØ¯ ReplyØŒ ÙƒÙŠØ¬ÙŠØ¨ mappings Ù…Ù† Ù†ÙØ³
+    source_chat_id (ÙŠØ¹Ù†ÙŠ ÙƒÙ„ Ù‚Ù†Ø§Ø© ÙƒØªÙ‚Ø¯Ø± ØªÙ…Ø³Ø­ ØºÙŠØ± Ø§Ù„Ø±Ø³Ø§Ø¦Ù„ Ø§Ù„Ù„ÙŠ
+    Ø®Ø±Ø¬Øª Ù…Ù†Ù‡Ø§ Ù‡ÙŠ)ØŒ ÙƒÙŠÙ…Ø³Ø­ Ø§Ù„Ù†Ø³Ø® ÙÙ€ targetsØŒ Ø§Ù„Ø±Ø³Ø§Ù„Ø© Ø§Ù„Ø£ØµÙ„ÙŠØ©ØŒ
+    ÙˆØ£Ù…Ø± /del Ù†ÙØ³Ùˆ.
+    """
     if not event.is_reply:
-        await event.reply("⚠️ خاصك تدير Reply على الرسالة اللي تحب تحذفها وتكتب /del")
+        await event.reply("âš ï¸ Ø®Ø§ØµÙƒ ØªØ¯ÙŠØ± Reply Ø¹Ù„Ù‰ Ø§Ù„Ø±Ø³Ø§Ù„Ø© Ø§Ù„Ù„ÙŠ ØªØ­Ø¨ ØªØ­Ø°ÙÙ‡Ø§ ÙˆØªÙƒØªØ¨ /del")
         return
 
     replied = await event.get_reply_message()
@@ -309,7 +347,7 @@ async def handle_manual_delete(event, source_chat_id):
     source_message_id = replied.id
     mappings = get_mappings(source_message_id, source_chat_id)
     if not mappings:
-        await event.reply(f"❌ ما لقيتش نسخة للرسالة (id={source_message_id})")
+        await event.reply(f"âŒ Ù…Ø§ Ù„Ù‚ÙŠØªØ´ Ù†Ø³Ø®Ø© Ù„Ù„Ø±Ø³Ø§Ù„Ø© (id={source_message_id})")
         return
 
     deleted_count = await delete_source_message(source_message_id, source_chat_id)
@@ -407,7 +445,7 @@ async def source_deleted_message(event):
 
 @client.on(events.NewMessage(chats=SOURCE_CHAT_ID, pattern=r"^/del$"))
 async def del_handler(event):
-    # /del فـ SOURCE_CHAT_ID مخصص فقط لـ owner الرئيسي
+    # /del ÙÙ€ SOURCE_CHAT_ID Ù…Ø®ØµØµ ÙÙ‚Ø· Ù„Ù€ owner Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ
     if not is_allowed(event.sender_id):
         return
     await handle_manual_delete(event, SOURCE_CHAT_ID)
@@ -419,14 +457,14 @@ async def status_handler(event):
         return
 
     await event.reply(
-        f"🤖 LEX AUTO PUBLISHER PRO ({BOT_NAME})\n\n"
-        "🟢 STATUS: ONLINE\n\n"
-        "🏠 SOURCE:\n"
+        f"ðŸ¤– LEX AUTO PUBLISHER PRO ({BOT_NAME})\n\n"
+        "ðŸŸ¢ STATUS: ONLINE\n\n"
+        "ðŸ  SOURCE:\n"
         f"`{SOURCE_CHAT_ID}`\n\n"
-        "📤 TARGETS:\n"
+        "ðŸ“¤ TARGETS:\n"
         + "\n".join(f"`{chat_id}`" for chat_id in TARGET_CHAT_IDS)
         + "\n\n"
-        f"🗄 DB: `{DB_FILE}`"
+        f"ðŸ—„ DB: `{DB_FILE}`"
     )
 
 
@@ -434,7 +472,7 @@ async def status_handler(event):
 async def id_handler(event):
     if not (is_allowed(event.sender_id) or is_channel_owner(event.sender_id, event.chat_id)):
         return
-    await event.reply(f"🆔 CHAT ID:\n`{event.chat_id}`")
+    await event.reply(f"ðŸ†” CHAT ID:\n`{event.chat_id}`")
 
 
 # ============================================================
@@ -443,7 +481,7 @@ async def id_handler(event):
 
 for _special_chat_id, _special_owner_id in SPECIAL_CHANNELS.items():
 
-@client.on(events.NewMessage(chats=_special_chat_id))
+    @client.on(events.NewMessage(chats=_special_chat_id))
     async def special_channel_new_message(event, special_chat_id=_special_chat_id, special_owner_id=_special_owner_id):
         try:
             message = event.message
@@ -464,7 +502,7 @@ for _special_chat_id, _special_owner_id in SPECIAL_CHANNELS.items():
         except Exception as e:
             logger.exception("SPECIAL CHANNEL NEW MESSAGE ERROR: %s", e)
 
-@client.on(events.MessageEdited(chats=_special_chat_id))
+    @client.on(events.MessageEdited(chats=_special_chat_id))
     async def special_channel_edit_message(event, special_chat_id=_special_chat_id):
         try:
             message = event.message
@@ -494,7 +532,7 @@ for _special_chat_id, _special_owner_id in SPECIAL_CHANNELS.items():
         except Exception as e:
             logger.exception("SPECIAL EDIT HANDLER ERROR: %s", e)
 
-@client.on(events.MessageDeleted(chats=_special_chat_id))
+    @client.on(events.MessageDeleted(chats=_special_chat_id))
     async def special_channel_deleted_message(event, special_chat_id=_special_chat_id):
         try:
             logger.info(
@@ -508,29 +546,29 @@ for _special_chat_id, _special_owner_id in SPECIAL_CHANNELS.items():
             logger.exception("SPECIAL DELETE HANDLER ERROR: %s", e)
 
     # --------------------------------------------------------
-    # /del خاص بصاحب هاد القناة: يقدر يمسح غير الرسائل اللي
-    # خرجت من قناته هو (special_chat_id) - ماعندوش حتى صلاحية
-    # على SOURCE_CHAT_ID ولا على قنوات special أخرى.
-    # الـ owner الرئيسي يقدر يستخدمها هنا زعما.
+    # /del Ø®Ø§Øµ Ø¨ØµØ§Ø­Ø¨ Ù‡Ø§Ø¯ Ø§Ù„Ù‚Ù†Ø§Ø©: ÙŠÙ‚Ø¯Ø± ÙŠÙ…Ø³Ø­ ØºÙŠØ± Ø§Ù„Ø±Ø³Ø§Ø¦Ù„ Ø§Ù„Ù„ÙŠ
+    # Ø®Ø±Ø¬Øª Ù…Ù† Ù‚Ù†Ø§ØªÙ‡ Ù‡Ùˆ (special_chat_id) - Ù…Ø§Ø¹Ù†Ø¯ÙˆØ´ Ø­ØªÙ‰ ØµÙ„Ø§Ø­ÙŠØ©
+    # Ø¹Ù„Ù‰ SOURCE_CHAT_ID ÙˆÙ„Ø§ Ø¹Ù„Ù‰ Ù‚Ù†ÙˆØ§Øª special Ø£Ø®Ø±Ù‰.
+    # Ø§Ù„Ù€ owner Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ ÙŠÙ‚Ø¯Ø± ÙŠØ³ØªØ®Ø¯Ù…Ù‡Ø§ Ù‡Ù†Ø§ Ø²Ø¹Ù…Ø§.
     # --------------------------------------------------------
 
-@client.on(events.NewMessage(chats=_special_chat_id, pattern=r"^/del$"))
+    @client.on(events.NewMessage(chats=_special_chat_id, pattern=r"^/del$"))
     async def special_del_handler(event, special_chat_id=_special_chat_id, special_owner_id=_special_owner_id):
         if not (event.sender_id == special_owner_id or is_allowed(event.sender_id)):
             return
         await handle_manual_delete(event, special_chat_id)
 
-@client.on(events.NewMessage(chats=_special_chat_id, pattern=r"^/status$"))
+    @client.on(events.NewMessage(chats=_special_chat_id, pattern=r"^/status$"))
     async def special_status_handler(event, special_chat_id=_special_chat_id, special_owner_id=_special_owner_id):
         if not (event.sender_id == special_owner_id or is_allowed(event.sender_id)):
             return
 
         await event.reply(
-            f"🤖 LEX AUTO PUBLISHER PRO ({BOT_NAME})\n\n"
-            "🟢 STATUS: ONLINE\n\n"
-            "🏠 القناة ديالك:\n"
+            f"ðŸ¤– LEX AUTO PUBLISHER PRO ({BOT_NAME})\n\n"
+            "ðŸŸ¢ STATUS: ONLINE\n\n"
+            "ðŸ  Ø§Ù„Ù‚Ù†Ø§Ø© Ø¯ÙŠØ§Ù„Ùƒ:\n"
             f"`{special_chat_id}`\n\n"
-            "📤 TARGETS:\n"
+            "ðŸ“¤ TARGETS:\n"
             + "\n".join(f"`{chat_id}`" for chat_id in TARGET_CHAT_IDS)
         )
 
