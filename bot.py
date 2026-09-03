@@ -443,7 +443,7 @@ async def source_deleted_message(event):
         logger.exception("DELETE HANDLER ERROR: %s", e)
 
 
-@client.on(events.NewMessage(chats=SOURCE_CHAT_ID, pattern=r"^/del$"))
+@client.on(events.NewMessage(chats=SOURCE_CHAT_ID, pattern=r"^/del(?:@\w+)?$"))
 async def del_handler(event):
     # /del ÙÙ€ SOURCE_CHAT_ID Ù…Ø®ØµØµ ÙÙ‚Ø· Ù„Ù€ owner Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ
     if not is_allowed(event.sender_id):
@@ -451,7 +451,7 @@ async def del_handler(event):
     await handle_manual_delete(event, SOURCE_CHAT_ID)
 
 
-@client.on(events.NewMessage(chats=SOURCE_CHAT_ID, pattern=r"^/status$"))
+@client.on(events.NewMessage(chats=SOURCE_CHAT_ID, pattern=r"^/status(?:@\w+)?$"))
 async def status_handler(event):
     if not is_allowed(event.sender_id):
         return
@@ -468,7 +468,7 @@ async def status_handler(event):
     )
 
 
-@client.on(events.NewMessage(pattern=r"^/id$"))
+@client.on(events.NewMessage(pattern=r"^/id(?:@\w+)?$"))
 async def id_handler(event):
     if not (is_allowed(event.sender_id) or is_channel_owner(event.sender_id, event.chat_id)):
         return
@@ -552,13 +552,13 @@ for _special_chat_id, _special_owner_id in SPECIAL_CHANNELS.items():
     # Ø§Ù„Ù€ owner Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ ÙŠÙ‚Ø¯Ø± ÙŠØ³ØªØ®Ø¯Ù…Ù‡Ø§ Ù‡Ù†Ø§ Ø²Ø¹Ù…Ø§.
     # --------------------------------------------------------
 
-    @client.on(events.NewMessage(chats=_special_chat_id, pattern=r"^/del$"))
+    @client.on(events.NewMessage(chats=_special_chat_id, pattern=r"^/del(?:@\w+)?$"))
     async def special_del_handler(event, special_chat_id=_special_chat_id, special_owner_id=_special_owner_id):
         if not (event.sender_id == special_owner_id or is_allowed(event.sender_id)):
             return
         await handle_manual_delete(event, special_chat_id)
 
-    @client.on(events.NewMessage(chats=_special_chat_id, pattern=r"^/status$"))
+    @client.on(events.NewMessage(chats=_special_chat_id, pattern=r"^/status(?:@\w+)?$"))
     async def special_status_handler(event, special_chat_id=_special_chat_id, special_owner_id=_special_owner_id):
         if not (event.sender_id == special_owner_id or is_allowed(event.sender_id)):
             return
