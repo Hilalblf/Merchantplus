@@ -36,20 +36,6 @@ def is_allowed(user_id):
 
 
 # ============================================================
-# الصديق: ينشر رسائله في نفس الـ 5 مجموعات + قناة إضافية خاصة به فقط
-# ============================================================
-
-FRIEND_USER_ID = 1154384855
-FRIEND_CHANNEL_ID = -1001716893195
-
-# ============================================================
-# مستخدم ممنوع من مجموعة واحدة محددة (بينشر في الباقي عادي)
-# ============================================================
-
-EXCLUDED_USER_ID = 1487551640
-EXCLUDED_GROUP_ID = -1003376621047
-
-# ============================================================
 # SOURCE & TARGETS
 # ============================================================
 
@@ -59,6 +45,7 @@ SOURCE_CHAT_ID = int(os.environ["SOURCE_CHAT_ID"])
 SPECIAL_CHANNELS = {
     -1002239341307: 5578623360,
     -1002895996910: 1760181851,
+    -100289599691: 176018185,
 }
 
 TARGET_CHAT_IDS = [
@@ -209,40 +196,25 @@ async def run_with_retry(func, *args, **kwargs):
 # ============================================================
 
 async def send_to_target(message, target_chat_id, reply_to=None):
-    text = message.text or ""
+    text = message.raw_text or ""
 
-    if not text.strip() and not message.media:
+    if not text.strip():
         return None
 
-    if message.media:
-        # send_file لا يقبل link_preview كباراميتر
-        kwargs = {"formatting_entities": message.entities}
-        if reply_to is not None:
-            kwargs["reply_to"] = reply_to
-            logger.info("REPLY SEND | TARGET=%s | REPLY_TO=%s", target_chat_id, reply_to)
+    kwargs = {
+        "formatting_entities": message.entities
+    }
 
-        sent = await run_with_retry(
-            client.send_file,
-            target_chat_id,
-            message.media,
-            caption=text,
-            **kwargs
-        )
-    else:
-        kwargs = {
-            "formatting_entities": message.entities,
-            "link_preview": False
-        }
-        if reply_to is not None:
-            kwargs["reply_to"] = reply_to
-            logger.info("REPLY SEND | TARGET=%s | REPLY_TO=%s", target_chat_id, reply_to)
+    if reply_to is not None:
+        kwargs["reply_to"] = reply_to
+        logger.info("REPLY SEND | TARGET=%s | REPLY_TO=%s", target_chat_id, reply_to)
 
-        sent = await run_with_retry(
-            client.send_message,
-            target_chat_id,
-            text,
-            **kwargs
-        )
+    sent = await run_with_retry(
+        client.send_message,
+        target_chat_id,
+        text,
+        **kwargs
+    )
 
     if sent is None:
         return None
@@ -273,24 +245,12 @@ async def publish_message(message, source_chat_id=SOURCE_CHAT_ID):
 
     success = 0
 
-    # النشر الأساسي بيروح لـ 5 المجموعات دايمًا
-    all_targets = list(TARGET_CHAT_IDS)
-
-    # لو الرسالة من الصديق، ضيف القناة الخاصة به فقط لهذه الرسالة
-    if message.sender_id == FRIEND_USER_ID:
-        if FRIEND_CHANNEL_ID not in all_targets:
-            all_targets.append(FRIEND_CHANNEL_ID)
-            logger.info("FRIEND MESSAGE DETECTED | ADDING CHANNEL %s TO TARGETS", FRIEND_CHANNEL_ID)
-
-    # المستخدم الممنوع من مجموعة واحدة: بتتشال المجموعة دي من قائمة النشر لرسائله فقط
-    if message.sender_id == EXCLUDED_USER_ID:
-        if EXCLUDED_GROUP_ID in all_targets:
-            all_targets = [t for t in all_targets if t != EXCLUDED_GROUP_ID]
-            logger.info("EXCLUDED USER MESSAGE DETECTED | REMOVING GROUP %s FROM TARGETS", EXCLUDED_GROUP_ID)
-
-    for target_chat_id in all_targets:
+    for target_chat_id in TARGET_CHAT_IDS:
         target_chat_id = int(target_chat_id)
         reply_to = parent_mappings.get(target_chat_id)
+
+        if parent_source_id is not None and reply_to is None:
+            logger.warning("NO PARENT MAPPING | SOURCE_PARENT=%s | TARGET=%s", parent_source_id, target_chat_id)
 
         target_message_id = await send_to_target(
             message,
@@ -308,7 +268,7 @@ async def publish_message(message, source_chat_id=SOURCE_CHAT_ID):
 
         await asyncio.sleep(0.3)
 
-    logger.info("PUBLISH COMPLETE | SOURCE=%s | %s/%s", message.id, success, len(all_targets))
+    logger.info("PUBLISH COMPLETE | SOURCE=%s | %s/%s", message.id, success, len(TARGET_CHAT_IDS))
 
 
 # ============================================================
@@ -322,10 +282,8 @@ async def source_new_message(event):
         if BOT_ID is not None and event.sender_id == BOT_ID:
             return
 
-        text = message.text or ""
-        if not text.strip() and not message.media:
-            return
-        if text.startswith("/"):
+        text = message.raw_text or ""
+        if not text.strip() or text.startswith("/"):
             return
 
         logger.info("NEW SOURCE MESSAGE | ID=%s | SENDER=%s | REPLY_TO=%s", message.id, event.sender_id, message.reply_to_msg_id)
@@ -338,24 +296,27 @@ async def source_new_message(event):
 async def source_edit_message(event):
     try:
         message = event.message
-        text = message.text or ""
-        if not text.strip() and not message.media:
-            return
-        if text.startswith("/"):
+        text = message.raw_text or ""
+        if not text.strip() or text.startswith("/"):
             return
 
         mappings = get_mappings(message.id)
         if not mappings:
+            logger.warning("NO MAPPING FOR EDIT | SOURCE=%s", message.id)
             return
 
+        logger.info("EDIT SOURCE MESSAGE | SOURCE=%s | TARGETS=%s", message.id, len(mappings))
+
         for target_chat_id, target_message_id in mappings:
-            await run_with_retry(
+            result = await run_with_retry(
                 client.edit_message,
                 target_chat_id,
                 target_message_id,
                 text,
                 formatting_entities=message.entities
             )
+            if result is not None:
+                logger.info("EDITED | SOURCE=%s -> TARGET=%s:%s", message.id, target_chat_id, target_message_id)
             await asyncio.sleep(0.3)
     except Exception as e:
         logger.exception("EDIT HANDLER ERROR: %s", e)
@@ -364,14 +325,19 @@ async def source_edit_message(event):
 async def delete_source_message(source_message_id, source_chat_id=SOURCE_CHAT_ID):
     mappings = get_mappings(source_message_id, source_chat_id)
     if not mappings:
+        logger.warning("NO MAPPING FOR DELETE | SOURCE=%s", source_message_id)
         return
 
+    logger.info("DELETE SOURCE=%s | %s TARGETS", source_message_id, len(mappings))
+
     for target_chat_id, target_message_id in mappings:
-        await run_with_retry(
+        result = await run_with_retry(
             client.delete_messages,
             target_chat_id,
             [target_message_id]
         )
+        if result is not None:
+            logger.info("DELETED | SOURCE=%s -> TARGET=%s:%s", source_message_id, target_chat_id, target_message_id)
         await asyncio.sleep(0.3)
 
     delete_mappings(source_message_id, source_chat_id)
@@ -380,6 +346,7 @@ async def delete_source_message(source_message_id, source_chat_id=SOURCE_CHAT_ID
 @client.on(events.MessageDeleted(chats=SOURCE_CHAT_ID))
 async def source_deleted_message(event):
     try:
+        logger.info("DELETE EVENT | SOURCE=%s | IDS=%s", SOURCE_CHAT_ID, event.deleted_ids)
         for message_id in event.deleted_ids:
             await delete_source_message(message_id)
     except Exception as e:
@@ -396,15 +363,17 @@ for _special_chat_id, _special_owner_id in SPECIAL_CHANNELS.items():
     async def special_channel_new_message(event, special_chat_id=_special_chat_id, special_owner_id=_special_owner_id):
         try:
             message = event.message
-            text = message.text or ""
-            if not text.strip() and not message.media:
-                return
-            if text.startswith("/"):
+            text = message.raw_text or ""
+            if not text.strip() or text.startswith("/"):
                 return
 
             logger.info(
-                "NEW SPECIAL CHANNEL MESSAGE | CHANNEL=%s | ID=%s | SENDER=%s",
-                special_chat_id, message.id, event.sender_id
+                "NEW SPECIAL CHANNEL MESSAGE | CHANNEL=%s | ID=%s | SENDER=%s | OWNER=%s | REPLY_TO=%s",
+                special_chat_id,
+                message.id,
+                event.sender_id,
+                special_owner_id,
+                message.reply_to_msg_id
             )
 
             await publish_message(message, special_chat_id)
@@ -415,24 +384,28 @@ for _special_chat_id, _special_owner_id in SPECIAL_CHANNELS.items():
     async def special_channel_edit_message(event, special_chat_id=_special_chat_id):
         try:
             message = event.message
-            text = message.text or ""
-            if not text.strip() and not message.media:
-                return
-            if text.startswith("/"):
+            text = message.raw_text or ""
+            if not text.strip() or text.startswith("/"):
                 return
 
             mappings = get_mappings(message.id, special_chat_id)
             if not mappings:
+                logger.warning("NO SPECIAL MAPPING FOR EDIT | SOURCE=%s", message.id)
                 return
 
             for target_chat_id, target_message_id in mappings:
-                await run_with_retry(
+                result = await run_with_retry(
                     client.edit_message,
                     target_chat_id,
                     target_message_id,
                     text,
                     formatting_entities=message.entities
                 )
+                if result is not None:
+                    logger.info(
+                        "SPECIAL EDITED | SOURCE=%s -> TARGET=%s:%s",
+                        message.id, target_chat_id, target_message_id
+                    )
                 await asyncio.sleep(0.3)
         except Exception as e:
             logger.exception("SPECIAL EDIT HANDLER ERROR: %s", e)
@@ -440,18 +413,23 @@ for _special_chat_id, _special_owner_id in SPECIAL_CHANNELS.items():
     @client.on(events.MessageDeleted(chats=_special_chat_id))
     async def special_channel_deleted_message(event, special_chat_id=_special_chat_id):
         try:
+            logger.info(
+                "SPECIAL DELETE EVENT | SOURCE=%s | IDS=%s",
+                special_chat_id,
+                event.deleted_ids
+            )
             for message_id in event.deleted_ids:
                 await delete_source_message(message_id, special_chat_id)
         except Exception as e:
             logger.exception("SPECIAL DELETE HANDLER ERROR: %s", e)
 
-
-@client.on(events.NewMessage(chats=SOURCE_CHAT_ID, pattern=r"^/del(@\w+)?$"))
+@client.on(events.NewMessage(chats=SOURCE_CHAT_ID, pattern=r"^/del$"))
 async def del_handler(event):
     if not is_allowed(event.sender_id):
         return
 
     if not event.is_reply:
+        await event.reply("⚠️ خاصك تدير Reply على الرسالة اللي تحب تحذفها وتكتب /del")
         return
 
     replied = await event.get_reply_message()
@@ -461,27 +439,33 @@ async def del_handler(event):
     source_message_id = replied.id
     mappings = get_mappings(source_message_id)
     if not mappings:
+        await event.reply(f"❌ ما لقيتش نسخة للرسالة (id={source_message_id})")
         return
 
+    deleted_count = 0
     for target_chat_id, target_message_id in mappings:
-        await run_with_retry(
+        result = await run_with_retry(
             client.delete_messages,
             target_chat_id,
             [target_message_id]
         )
+        if result is not None:
+            deleted_count += 1
         await asyncio.sleep(0.3)
 
     delete_mappings(source_message_id)
 
     try:
         await client.delete_messages(SOURCE_CHAT_ID, [source_message_id])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("SOURCE DELETE FAILED: %s", e)
 
     try:
         await event.delete()
     except Exception:
         pass
+
+    logger.info("MANUAL DELETE | SOURCE=%s | %s/%s", source_message_id, deleted_count, len(mappings))
 
 
 @client.on(events.NewMessage(chats=SOURCE_CHAT_ID, pattern=r"^/status$"))
@@ -492,9 +476,20 @@ async def status_handler(event):
     await event.reply(
         f"🤖 LEX AUTO PUBLISHER PRO ({BOT_NAME})\n\n"
         "🟢 STATUS: ONLINE\n\n"
-        f"🏠 SOURCE: `{SOURCE_CHAT_ID}`\n"
-        f"🎯 TARGETS: {len(TARGET_CHAT_IDS)}"
+        "🏠 SOURCE:\n"
+        f"`{SOURCE_CHAT_ID}`\n\n"
+        "📤 TARGETS:\n"
+        + "\n".join(f"`{chat_id}`" for chat_id in TARGET_CHAT_IDS)
+        + "\n\n"
+        f"🗄 DB: `{DB_FILE}`"
     )
+
+
+@client.on(events.NewMessage(pattern=r"^/id$"))
+async def id_handler(event):
+    if not is_allowed(event.sender_id):
+        return
+    await event.reply(f"🆔 CHAT ID:\n`{event.chat_id}`")
 
 
 # ============================================================
@@ -508,6 +503,7 @@ async def main():
     logger.info("========================================")
     logger.info("LEX AUTO PUBLISHER PRO - %s", BOT_NAME)
     logger.info("SOURCE: %s", SOURCE_CHAT_ID)
+    logger.info("SPECIAL CHANNELS: %s", SPECIAL_CHANNELS)
     logger.info("TARGETS: %s", TARGET_CHAT_IDS)
     logger.info("DATABASE: %s", DB_FILE)
 
@@ -528,4 +524,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("LEX STOPPED")
+ 
  
