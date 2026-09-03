@@ -10,26 +10,17 @@ from telethon.errors import FloodWaitError
 
 load_dotenv()
 
-# ============================================================
-# LEX AUTO PUBLISHER PRO - BOT 2
-# ============================================================
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
-# ============================================================
-# ENV
-# ============================================================
 
-def required_env(name: str) -> str:
+def get_required_env(name: str) -> str:
     value = os.getenv(name, "").strip()
 
     if not value:
-        raise RuntimeError(
-            f"Missing required Variable: {name}"
-        )
+        raise RuntimeError(f"Missing required Variable: {name}")
 
     return value
 
@@ -39,7 +30,7 @@ def parse_int(value: str, name: str) -> int:
         return int(value.strip())
     except Exception:
         raise RuntimeError(
-            f"Variable {name} must be an integer."
+            f"Variable {name} must be a valid integer."
         )
 
 
@@ -63,26 +54,22 @@ def parse_int_list(value: str) -> set[int]:
     return result
 
 
-# ============================================================
-# BASIC VARIABLES
-# ============================================================
-
 API_ID = parse_int(
-    required_env("API_ID"),
+    get_required_env("API_ID"),
     "API_ID"
 )
 
-API_HASH = required_env("API_HASH")
+API_HASH = get_required_env("API_HASH")
 
-BOT_TOKEN = required_env("BOT_TOKEN")
+BOT_TOKEN = get_required_env("BOT_TOKEN")
 
 OWNER_ID = parse_int(
-    required_env("OWNER_ID"),
+    get_required_env("OWNER_ID"),
     "OWNER_ID"
 )
 
 SOURCE_CHAT_ID = parse_int(
-    required_env("SOURCE_CHAT_ID"),
+    get_required_env("SOURCE_CHAT_ID"),
     "SOURCE_CHAT_ID"
 )
 
@@ -92,20 +79,12 @@ DB_FILE = os.getenv(
 ).strip()
 
 
-# ============================================================
-# ADMINS
-# ============================================================
-
 ADMIN_IDS = parse_int_list(
     os.getenv("ADMIN_IDS", "")
 )
 
 ADMIN_IDS.add(OWNER_ID)
 
-
-# ============================================================
-# TARGET CHANNELS
-# ============================================================
 
 TARGET_CHAT_IDS = list(
     parse_int_list(
@@ -118,13 +97,6 @@ if not TARGET_CHAT_IDS:
         "TARGET_CHAT_IDS is empty."
     )
 
-
-# ============================================================
-# PERSONAL CHANNELS
-#
-# Format:
-# USER_ID:CHANNEL_ID;USER_ID:CHANNEL_ID
-# ============================================================
 
 def parse_personal_channels(value: str):
 
@@ -140,19 +112,11 @@ def parse_personal_channels(value: str):
         if not item or ":" not in item:
             continue
 
-        user_part, channel_part = item.split(
-            ":",
-            1
-        )
+        user_part, channel_part = item.split(":", 1)
 
         try:
-            user_id = int(
-                user_part.strip()
-            )
-
-            channel_id = int(
-                channel_part.strip()
-            )
+            user_id = int(user_part.strip())
+            channel_id = int(channel_part.strip())
 
             result[user_id] = channel_id
 
@@ -166,19 +130,9 @@ def parse_personal_channels(value: str):
 
 
 PERSONAL_CHANNELS = parse_personal_channels(
-    os.getenv(
-        "PERSONAL_CHANNELS",
-        ""
-    )
+    os.getenv("PERSONAL_CHANNELS", "")
 )
 
-
-# ============================================================
-# USER BLOCKED TARGETS
-#
-# Format:
-# USER_ID:TARGET1,TARGET2;USER_ID:TARGET3
-# ============================================================
 
 def parse_user_blocked_targets(value: str):
 
@@ -194,15 +148,10 @@ def parse_user_blocked_targets(value: str):
         if not item or ":" not in item:
             continue
 
-        user_part, targets_part = item.split(
-            ":",
-            1
-        )
+        user_part, targets_part = item.split(":", 1)
 
         try:
-            user_id = int(
-                user_part.strip()
-            )
+            user_id = int(user_part.strip())
         except Exception:
             logging.warning(
                 "Invalid blocked user: %s",
@@ -210,7 +159,7 @@ def parse_user_blocked_targets(value: str):
             )
             continue
 
-        blocked = set()
+        blocked_targets = set()
 
         for target in targets_part.split(","):
 
@@ -220,30 +169,23 @@ def parse_user_blocked_targets(value: str):
                 continue
 
             try:
-                blocked.add(int(target))
+                blocked_targets.add(int(target))
             except Exception:
                 logging.warning(
                     "Invalid blocked target: %s",
                     target
                 )
 
-        if blocked:
-            result[user_id] = blocked
+        if blocked_targets:
+            result[user_id] = blocked_targets
 
     return result
 
 
 USER_BLOCKED_TARGETS = parse_user_blocked_targets(
-    os.getenv(
-        "USER_BLOCKED_TARGETS",
-        ""
-    )
+    os.getenv("USER_BLOCKED_TARGETS", "")
 )
 
-
-# ============================================================
-# DATABASE
-# ============================================================
 
 db = sqlite3.connect(
     DB_FILE,
@@ -268,10 +210,6 @@ db.commit()
 
 db_lock = asyncio.Lock()
 
-
-# ============================================================
-# DATABASE FUNCTIONS
-# ============================================================
 
 async def save_mapping(
     source_msg_id: int,
@@ -301,9 +239,7 @@ async def save_mapping(
         db.commit()
 
 
-async def get_mappings(
-    source_msg_id: int
-):
+async def get_mappings(source_msg_id: int):
 
     async with db_lock:
 
@@ -321,9 +257,7 @@ async def get_mappings(
         return cursor.fetchall()
 
 
-async def delete_all_mappings(
-    source_msg_id: int
-):
+async def delete_all_mappings(source_msg_id: int):
 
     async with db_lock:
 
@@ -338,17 +272,11 @@ async def delete_all_mappings(
         db.commit()
 
 
-# ============================================================
-# TARGETS FOR USER
-# ============================================================
-
 def get_targets_for_user(
     sender_id: Optional[int]
 ):
 
-    targets = list(
-        TARGET_CHAT_IDS
-    )
+    targets = list(TARGET_CHAT_IDS)
 
     if sender_id is not None:
 
@@ -357,9 +285,7 @@ def get_targets_for_user(
         )
 
         if personal_channel:
-            targets.append(
-                personal_channel
-            )
+            targets.append(personal_channel)
 
     targets = list(
         dict.fromkeys(targets)
@@ -379,20 +305,12 @@ def get_targets_for_user(
     return targets
 
 
-# ============================================================
-# TELEGRAM CLIENT
-# ============================================================
-
 client = TelegramClient(
     "lex_publisher_bot_2",
     API_ID,
     API_HASH
 )
 
-
-# ============================================================
-# SEND TO TARGET
-# ============================================================
 
 async def send_to_target(
     target_chat_id: int,
@@ -402,13 +320,11 @@ async def send_to_target(
 
     try:
 
-        sent = await client.send_message(
+        return await client.send_message(
             entity=target_chat_id,
             message=message,
             reply_to=reply_to
         )
-
-        return sent
 
     except FloodWaitError as e:
 
@@ -418,19 +334,15 @@ async def send_to_target(
             target_chat_id
         )
 
-        await asyncio.sleep(
-            e.seconds
-        )
+        await asyncio.sleep(e.seconds)
 
         try:
 
-            sent = await client.send_message(
+            return await client.send_message(
                 entity=target_chat_id,
                 message=message,
                 reply_to=reply_to
             )
-
-            return sent
 
         except Exception as retry_error:
 
@@ -451,10 +363,6 @@ async def send_to_target(
     return None
 
 
-# ============================================================
-# FIND REPLY TARGET
-# ============================================================
-
 async def find_reply_target(
     source_reply_msg_id: int,
     target_chat_id: int
@@ -471,10 +379,6 @@ async def find_reply_target(
 
     return None
 
-
-# ============================================================
-# PUBLISH MESSAGE
-# ============================================================
 
 async def publish_message(
     message,
@@ -555,10 +459,6 @@ async def publish_message(
             )
 
 
-# ============================================================
-# SOURCE NEW MESSAGE
-# ============================================================
-
 @client.on(
     events.NewMessage(
         chats=SOURCE_CHAT_ID
@@ -573,8 +473,6 @@ async def source_new_message(event):
         if not message:
             return
 
-        # Never publish bot commands
-
         if message.text:
 
             first_word = (
@@ -584,20 +482,14 @@ async def source_new_message(event):
                 .lower()
             )
 
-            commands = (
-                "/del",
-                "/status",
-                "/id",
-                "/help"
-            )
-
-            if first_word.startswith(commands):
-
-                logging.info(
-                    "Command ignored from publishing: %s",
-                    message.text
+            if first_word.startswith(
+                (
+                    "/del",
+                    "/status",
+                    "/id",
+                    "/help"
                 )
-
+            ):
                 return
 
         await publish_message(
@@ -608,13 +500,9 @@ async def source_new_message(event):
     except Exception:
 
         logging.exception(
-            "Source message error"
+            "Source new message error"
         )
 
-
-# ============================================================
-# SOURCE EDIT
-# ============================================================
 
 @client.on(
     events.MessageEdited(
@@ -639,19 +527,22 @@ async def source_message_edited(event):
                 .lower()
             )
 
-            commands = (
-                "/del",
-                "/status",
-                "/id",
-                "/help"
-            )
-
-            if first_word.startswith(commands):
+            if first_word.startswith(
+                (
+                    "/del",
+                    "/status",
+                    "/id",
+                    "/help"
+                )
+            ):
                 return
 
         mappings = await get_mappings(
             message.id
         )
+
+        if not mappings:
+            return
 
         for target_chat_id, target_msg_id in mappings:
 
@@ -675,13 +566,9 @@ async def source_message_edited(event):
     except Exception:
 
         logging.exception(
-            "Edit handler error"
+            "Edited message error"
         )
 
-
-# ============================================================
-# SOURCE DELETE
-# ============================================================
 
 @client.on(
     events.MessageDeleted(
@@ -723,14 +610,9 @@ async def source_message_deleted(event):
     except Exception:
 
         logging.exception(
-            "Delete handler error"
+            "Deleted message handler error"
         )
 
-
-# ============================================================
-# /ID
-# ONLY MAIN GROUP
-# ============================================================
 
 @client.on(
     events.NewMessage(
@@ -742,16 +624,14 @@ async def command_id(event):
     if event.chat_id != SOURCE_CHAT_ID:
         return
 
+    if event.sender_id not in ADMIN_IDS:
+        return
+
     await event.reply(
         f"Chat ID: `{event.chat_id}`\n"
         f"User ID: `{event.sender_id}`"
     )
 
-
-# ============================================================
-# /STATUS
-# ONLY MAIN GROUP
-# ============================================================
 
 @client.on(
     events.NewMessage(
@@ -763,10 +643,10 @@ async def command_status(event):
     if event.chat_id != SOURCE_CHAT_ID:
         return
 
-    sender_id = event.sender_id
-
-    if sender_id not in ADMIN_IDS:
+    if event.sender_id not in ADMIN_IDS:
         return
+
+    sender_id = event.sender_id
 
     targets = get_targets_for_user(
         sender_id
@@ -784,7 +664,7 @@ async def command_status(event):
     text = (
         "LEX AUTO PUBLISHER PRO\n\n"
         f"User: {sender_id}\n"
-        f"Admin: {sender_id in ADMIN_IDS}\n"
+        f"Admin: True\n"
         f"Allowed targets: {len(targets)}\n"
         f"Blocked targets: {len(blocked)}\n"
     )
@@ -798,19 +678,19 @@ async def command_status(event):
 
 
 # ============================================================
-# /DEL
-#
-# ONLY MAIN GROUP
+# DELETE COMMAND
 #
 # /del
 # /del@Merchantdz_bot
 # /del 123456
-# /del@Merchantdz_bot 123456
 #
-# OR REPLY TO ORIGINAL MESSAGE
+# REPLY MODE:
+# Reply to original post + /del
 #
-# IMPORTANT:
-# THE /del COMMAND ITSELF IS DELETED.
+# RESULT:
+# Original post deleted
+# Target copies deleted
+# /del message deleted
 # ============================================================
 
 @client.on(
@@ -820,51 +700,29 @@ async def command_status(event):
 )
 async def command_delete(event):
 
-    # --------------------------------------------------------
-    # ONLY MAIN GROUP
-    # --------------------------------------------------------
-
     if event.chat_id != SOURCE_CHAT_ID:
         return
-
-    # --------------------------------------------------------
-    # ONLY ADMINS
-    # --------------------------------------------------------
 
     if event.sender_id not in ADMIN_IDS:
         return
 
     source_msg_id = None
 
-    # --------------------------------------------------------
-    # /del 123456
-    # --------------------------------------------------------
-
     try:
-
         message_id_text = (
             event.pattern_match.group(1)
         )
-
     except Exception:
-
         message_id_text = None
 
     if message_id_text:
 
         try:
-
             source_msg_id = int(
                 message_id_text
             )
-
         except Exception:
-
             source_msg_id = None
-
-    # --------------------------------------------------------
-    # /del AS REPLY
-    # --------------------------------------------------------
 
     if source_msg_id is None:
 
@@ -880,14 +738,9 @@ async def command_delete(event):
         except Exception as e:
 
             logging.error(
-                "Could not read reply: %s",
+                "Reply detection error: %s",
                 e
             )
-
-    # --------------------------------------------------------
-    # IF NOTHING FOUND
-    # DELETE COMMAND ANYWAY
-    # --------------------------------------------------------
 
     if source_msg_id is None:
 
@@ -898,28 +751,16 @@ async def command_delete(event):
                 message_ids=[event.id]
             )
 
-        except Exception as e:
-
-            logging.error(
-                "Could not delete command: %s",
-                e
-            )
+        except Exception:
+            pass
 
         return
 
-    # --------------------------------------------------------
-    # GET ALL TARGET COPIES
-    # --------------------------------------------------------
+    # Delete all target copies
 
     mappings = await get_mappings(
         source_msg_id
     )
-
-    deleted_count = 0
-
-    # --------------------------------------------------------
-    # DELETE TARGET COPIES
-    # --------------------------------------------------------
 
     for target_chat_id, target_msg_id in mappings:
 
@@ -930,11 +771,8 @@ async def command_delete(event):
                 message_ids=[target_msg_id]
             )
 
-            deleted_count += 1
-
             logging.info(
-                "Manual delete %s -> %s/%s",
-                source_msg_id,
+                "Deleted target copy %s/%s",
                 target_chat_id,
                 target_msg_id
             )
@@ -942,23 +780,40 @@ async def command_delete(event):
         except Exception as e:
 
             logging.error(
-                "Manual delete failed %s/%s: %s",
+                "Target delete failed %s/%s: %s",
                 target_chat_id,
                 target_msg_id,
                 e
             )
 
-    # --------------------------------------------------------
-    # REMOVE DATABASE MAPPING
-    # --------------------------------------------------------
+    # Remove mappings
 
     await delete_all_mappings(
         source_msg_id
     )
 
-    # --------------------------------------------------------
-    # DELETE /del COMMAND ITSELF
-    # --------------------------------------------------------
+    # Delete original source post
+
+    try:
+
+        await client.delete_messages(
+            entity=SOURCE_CHAT_ID,
+            message_ids=[source_msg_id]
+        )
+
+        logging.info(
+            "Deleted original post %s",
+            source_msg_id
+        )
+
+    except Exception as e:
+
+        logging.error(
+            "Could not delete original post: %s",
+            e
+        )
+
+    # Delete /del command
 
     try:
 
@@ -968,7 +823,7 @@ async def command_delete(event):
         )
 
         logging.info(
-            "Deleted /del command: %s",
+            "Deleted /del command %s",
             event.id
         )
 
@@ -979,11 +834,6 @@ async def command_delete(event):
             e
         )
 
-
-# ============================================================
-# /HELP
-# ONLY MAIN GROUP
-# ============================================================
 
 @client.on(
     events.NewMessage(
@@ -1004,13 +854,9 @@ async def command_help(event):
         "/status\n"
         "/del\n"
         "/del 123456\n\n"
-        "Use /del as a reply to the original post."
+        "Reply to a post and send /del to delete it everywhere."
     )
 
-
-# ============================================================
-# STARTUP
-# ============================================================
 
 async def startup():
 
@@ -1057,10 +903,6 @@ async def startup():
     )
 
 
-# ============================================================
-# MAIN
-# ============================================================
-
 async def main():
 
     await client.start(
@@ -1080,9 +922,7 @@ if __name__ == "__main__":
 
     try:
 
-        asyncio.run(
-            main()
-        )
+        asyncio.run(main())
 
     except KeyboardInterrupt:
 
@@ -1094,4 +934,4 @@ if __name__ == "__main__":
 
         logging.exception(
             "Fatal error"
-            ) 
+) 
