@@ -79,6 +79,21 @@ DB_FILE = os.getenv(
 ).strip()
 
 
+# ============================================================
+# USER ACCOUNT SETTINGS
+# ============================================================
+
+USER_PHONE = os.getenv(
+    "USER_PHONE",
+    ""
+).strip()
+
+USER_SESSION = os.getenv(
+    "USER_SESSION",
+    ""
+).strip()
+
+
 ADMIN_IDS = parse_int_list(
     os.getenv("ADMIN_IDS", "")
 )
@@ -187,6 +202,10 @@ USER_BLOCKED_TARGETS = parse_user_blocked_targets(
 )
 
 
+# ============================================================
+# DATABASE
+# ============================================================
+
 db = sqlite3.connect(
     DB_FILE,
     check_same_thread=False
@@ -245,9 +264,7 @@ async def get_mappings(source_msg_id: int):
 
         cursor = db.execute(
             """
-            SELECT
-                target_chat_id,
-                target_msg_id
+            SELECT target_chat_id, target_msg_id
             FROM published_messages
             WHERE source_msg_id = ?
             """,
@@ -272,9 +289,11 @@ async def delete_all_mappings(source_msg_id: int):
         db.commit()
 
 
-def get_targets_for_user(
-    sender_id: Optional[int]
-):
+# ============================================================
+# TARGETS
+# ============================================================
+
+def get_targets_for_user(sender_id: Optional[int]):
 
     targets = list(TARGET_CHAT_IDS)
 
@@ -305,31 +324,81 @@ def get_targets_for_user(
     return targets
 
 
-client = TelegramClient(
+# ============================================================
+# BOT CLIENT
+# ============================================================
+
+bot_client = TelegramClient(
     "lex_publisher_bot_2",
     API_ID,
     API_HASH
 )
 
 
-async def send_to_target(
+# ============================================================
+# USER CLIENT
+# ============================================================
+
+if USER_SESSION:
+
+    from telethon.sessions import StringSession
+
+    user_client = TelegramClient(
+        StringSession(USER_SESSION),
+        API_ID,
+        API_HASH
+    )
+
+else:
+
+    user_client = TelegramClient(
+        "lex_publisher_user_2",
+        API_ID,
+        API_HASH
+    )
+
+
+# ============================================================
+# SEND SYSTEM
+# ============================================================
+
+async def send_with_user_as(
     target_chat_id: int,
     message,
     reply_to: Optional[int] = None
 ):
 
+    """
+    First try sending as the target chat/channel
+    using the user account.
+
+    If Telegram refuses Send As, fallback to BOT client.
+    """
+
+    # --------------------------------------------------------
+    # TRY USER ACCOUNT + SEND AS TARGET
+    # --------------------------------------------------------
+
     try:
 
-        return await client.send_message(
+        sent = await user_client.send_message(
             entity=target_chat_id,
             message=message,
-            reply_to=reply_to
+            reply_to=reply_to,
+            send_as=target_chat_id
         )
+
+        logging.info(
+            "SEND AS SUCCESS: %s",
+            target_chat_id
+        )
+
+        return sent
 
     except FloodWaitError as e:
 
         logging.warning(
-            "FloodWait %s seconds for %s",
+            "User FloodWait %s seconds for %s",
             e.seconds,
             target_chat_id
         )
@@ -338,7 +407,63 @@ async def send_to_target(
 
         try:
 
-            return await client.send_message(
+            sent = await user_client.send_message(
+                entity=target_chat_id,
+                message=message,
+                reply_to=reply_to,
+                send_as=target_chat_id
+            )
+
+            return sent
+
+        except Exception as retry_error:
+
+            logging.warning(
+                "User Send As retry failed for %s: %s",
+                target_chat_id,
+                retry_error
+            )
+
+    except Exception as e:
+
+        logging.warning(
+            "Send As unavailable for %s: %s",
+            target_chat_id,
+            e
+        )
+
+    # --------------------------------------------------------
+    # FALLBACK TO BOT
+    # --------------------------------------------------------
+
+    try:
+
+        sent = await bot_client.send_message(
+            entity=target_chat_id,
+            message=message,
+            reply_to=reply_to
+        )
+
+        logging.info(
+            "FALLBACK BOT SEND: %s",
+            target_chat_id
+        )
+
+        return sent
+
+    except FloodWaitError as e:
+
+        logging.warning(
+            "Bot FloodWait %s seconds for %s",
+            e.seconds,
+            target_chat_id
+        )
+
+        await asyncio.sleep(e.seconds)
+
+        try:
+
+            return await bot_client.send_message(
                 entity=target_chat_id,
                 message=message,
                 reply_to=reply_to
@@ -347,7 +472,7 @@ async def send_to_target(
         except Exception as retry_error:
 
             logging.error(
-                "Retry failed for %s: %s",
+                "Bot retry failed for %s: %s",
                 target_chat_id,
                 retry_error
             )
@@ -355,7 +480,7 @@ async def send_to_target(
     except Exception as e:
 
         logging.error(
-            "Send failed to %s: %s",
+            "Bot fallback failed for %s: %s",
             target_chat_id,
             e
         )
@@ -379,6 +504,10 @@ async def find_reply_target(
 
     return None
 
+
+# ============================================================
+# PUBLISH
+# ============================================================
 
 async def publish_message(
     message,
@@ -428,7 +557,7 @@ async def publish_message(
                     target_chat_id
                 )
 
-            sent = await send_to_target(
+            sent = await send_with_user_as(
                 target_chat_id,
                 message,
                 reply_to
@@ -459,7 +588,11 @@ async def publish_message(
             )
 
 
-@client.on(
+# ============================================================
+# SOURCE NEW MESSAGE
+# ============================================================
+
+@bot_client.on(
     events.NewMessage(
         chats=SOURCE_CHAT_ID
     )
@@ -504,7 +637,11 @@ async def source_new_message(event):
         )
 
 
-@client.on(
+# ============================================================
+# EDIT
+# ============================================================
+
+@bot_client.on(
     events.MessageEdited(
         chats=SOURCE_CHAT_ID
     )
@@ -548,7 +685,7 @@ async def source_message_edited(event):
 
             try:
 
-                await client.edit_message(
+                await bot_client.edit_message(
                     entity=target_chat_id,
                     message=target_msg_id,
                     text=message
@@ -570,7 +707,11 @@ async def source_message_edited(event):
         )
 
 
-@client.on(
+# ============================================================
+# DELETE SOURCE MESSAGE
+# ============================================================
+
+@bot_client.on(
     events.MessageDeleted(
         chats=SOURCE_CHAT_ID
     )
@@ -589,7 +730,7 @@ async def source_message_deleted(event):
 
                 try:
 
-                    await client.delete_messages(
+                    await bot_client.delete_messages(
                         entity=target_chat_id,
                         message_ids=[target_msg_id]
                     )
@@ -614,7 +755,11 @@ async def source_message_deleted(event):
         )
 
 
-@client.on(
+# ============================================================
+# /id
+# ============================================================
+
+@bot_client.on(
     events.NewMessage(
         pattern=r"^/id(?:@\w+)?$"
     )
@@ -633,7 +778,11 @@ async def command_id(event):
     )
 
 
-@client.on(
+# ============================================================
+# /status
+# ============================================================
+
+@bot_client.on(
     events.NewMessage(
         pattern=r"^/status(?:@\w+)?$"
     )
@@ -664,12 +813,13 @@ async def command_status(event):
     text = (
         "LEX AUTO PUBLISHER PRO\n\n"
         f"User: {sender_id}\n"
-        f"Admin: True\n"
+        "Admin: True\n"
         f"Allowed targets: {len(targets)}\n"
         f"Blocked targets: {len(blocked)}\n"
     )
 
     if personal:
+
         text += (
             f"Personal channel: {personal}\n"
         )
@@ -678,22 +828,10 @@ async def command_status(event):
 
 
 # ============================================================
-# DELETE COMMAND
-#
 # /del
-# /del@Merchantdz_bot
-# /del 123456
-#
-# REPLY MODE:
-# Reply to original post + /del
-#
-# RESULT:
-# Original post deleted
-# Target copies deleted
-# /del message deleted
 # ============================================================
 
-@client.on(
+@bot_client.on(
     events.NewMessage(
         pattern=r"^/del(?:@\w+)?(?:\s+(\d+))?$"
     )
@@ -709,19 +847,25 @@ async def command_delete(event):
     source_msg_id = None
 
     try:
+
         message_id_text = (
             event.pattern_match.group(1)
         )
+
     except Exception:
+
         message_id_text = None
 
     if message_id_text:
 
         try:
+
             source_msg_id = int(
                 message_id_text
             )
+
         except Exception:
+
             source_msg_id = None
 
     if source_msg_id is None:
@@ -746,17 +890,16 @@ async def command_delete(event):
 
         try:
 
-            await client.delete_messages(
+            await bot_client.delete_messages(
                 entity=SOURCE_CHAT_ID,
                 message_ids=[event.id]
             )
 
         except Exception:
+
             pass
 
         return
-
-    # Delete all target copies
 
     mappings = await get_mappings(
         source_msg_id
@@ -766,7 +909,7 @@ async def command_delete(event):
 
         try:
 
-            await client.delete_messages(
+            await bot_client.delete_messages(
                 entity=target_chat_id,
                 message_ids=[target_msg_id]
             )
@@ -786,17 +929,13 @@ async def command_delete(event):
                 e
             )
 
-    # Remove mappings
-
     await delete_all_mappings(
         source_msg_id
     )
 
-    # Delete original source post
-
     try:
 
-        await client.delete_messages(
+        await bot_client.delete_messages(
             entity=SOURCE_CHAT_ID,
             message_ids=[source_msg_id]
         )
@@ -813,17 +952,15 @@ async def command_delete(event):
             e
         )
 
-    # Delete /del command
-
     try:
 
-        await client.delete_messages(
+        await bot_client.delete_messages(
             entity=SOURCE_CHAT_ID,
             message_ids=[event.id]
         )
 
         logging.info(
-            "Deleted /del command %s",
+            "Deleted /del command: %s",
             event.id
         )
 
@@ -835,7 +972,11 @@ async def command_delete(event):
         )
 
 
-@client.on(
+# ============================================================
+# /help
+# ============================================================
+
+@bot_client.on(
     events.NewMessage(
         pattern=r"^/help(?:@\w+)?$"
     )
@@ -857,6 +998,10 @@ async def command_help(event):
         "Reply to a post and send /del to delete it everywhere."
     )
 
+
+# ============================================================
+# STARTUP
+# ============================================================
 
 async def startup():
 
@@ -899,23 +1044,52 @@ async def startup():
     )
 
     logging.info(
+        "Send As system: ENABLED"
+    )
+
+    logging.info(
         "======================================"
     )
 
 
+# ============================================================
+# MAIN
+# ============================================================
+
 async def main():
 
-    await client.start(
+    # Start BOT
+    await bot_client.start(
         bot_token=BOT_TOKEN
     )
+
+    # Start USER ACCOUNT
+    if USER_SESSION:
+
+        await user_client.start()
+
+    else:
+
+        if not USER_PHONE:
+
+            raise RuntimeError(
+                "USER_PHONE is required when USER_SESSION is empty."
+            )
+
+        await user_client.start(
+            phone=USER_PHONE
+        )
 
     await startup()
 
     logging.info(
-        "Bot is running..."
+        "Bot + User Session are running..."
     )
 
-    await client.run_until_disconnected()
+    await asyncio.gather(
+        bot_client.run_until_disconnected(),
+        user_client.run_until_disconnected()
+    )
 
 
 if __name__ == "__main__":
@@ -927,11 +1101,11 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
 
         logging.info(
-            "Bot stopped."
+            "System stopped."
         )
 
     except Exception:
 
         logging.exception(
             "Fatal error"
-) 
+    ) 
