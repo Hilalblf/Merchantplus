@@ -19,22 +19,30 @@ logging.basicConfig(
 
 def required(name):
     value = os.getenv(name, "").strip()
+
     if not value:
-        raise RuntimeError(f"Missing required variable: {name}")
+        raise RuntimeError(
+            f"Missing required variable: {name}"
+        )
+
     return value
 
 
 def integer(name):
     try:
         return int(required(name))
+
     except Exception:
-        raise RuntimeError(f"{name} must be a valid integer")
+        raise RuntimeError(
+            f"{name} must be a valid integer"
+        )
 
 
 def int_set(value):
     result = set()
 
     for item in value.split(","):
+
         item = item.strip()
 
         if not item:
@@ -42,11 +50,19 @@ def int_set(value):
 
         try:
             result.add(int(item))
+
         except Exception:
-            logging.warning("Invalid integer ignored: %s", item)
+            logging.warning(
+                "Invalid integer ignored: %s",
+                item
+            )
 
     return result
 
+
+# ============================================================
+# ENV VARIABLES
+# ============================================================
 
 API_ID = integer("API_ID")
 API_HASH = required("API_HASH")
@@ -61,12 +77,20 @@ DB_FILE = os.getenv(
 ).strip()
 
 
+# ============================================================
+# ADMINS
+# ============================================================
+
 ADMIN_IDS = int_set(
     os.getenv("ADMIN_IDS", "")
 )
 
 ADMIN_IDS.add(OWNER_ID)
 
+
+# ============================================================
+# TARGET CHAT IDS
+# ============================================================
 
 TARGET_CHAT_IDS = list(
     int_set(
@@ -75,30 +99,49 @@ TARGET_CHAT_IDS = list(
 )
 
 if not TARGET_CHAT_IDS:
-    raise RuntimeError("TARGET_CHAT_IDS is empty")
 
+    raise RuntimeError(
+        "TARGET_CHAT_IDS is empty"
+    )
+
+
+# ============================================================
+# PERSONAL CHANNELS
+# ============================================================
 
 def parse_personal_channels(value):
+
     result = {}
 
     if not value:
         return result
 
     for item in value.split(";"):
+
         item = item.strip()
 
         if not item or ":" not in item:
             continue
 
-        user_part, channel_part = item.split(":", 1)
+        user_part, channel_part = item.split(
+            ":",
+            1
+        )
 
         try:
-            user_id = int(user_part.strip())
-            channel_id = int(channel_part.strip())
+
+            user_id = int(
+                user_part.strip()
+            )
+
+            channel_id = int(
+                channel_part.strip()
+            )
 
             result[user_id] = channel_id
 
         except Exception:
+
             logging.warning(
                 "Invalid PERSONAL_CHANNELS entry: %s",
                 item
@@ -108,59 +151,91 @@ def parse_personal_channels(value):
 
 
 PERSONAL_CHANNELS = parse_personal_channels(
-    os.getenv("PERSONAL_CHANNELS", "")
+    os.getenv(
+        "PERSONAL_CHANNELS",
+        ""
+    )
 )
 
 
+# ============================================================
+# USER BLOCKED TARGETS
+# ============================================================
+
 def parse_blocked_targets(value):
+
     result = {}
 
     if not value:
         return result
 
     for item in value.split(";"):
+
         item = item.strip()
 
         if not item or ":" not in item:
             continue
 
-        user_part, targets_part = item.split(":", 1)
+        user_part, targets_part = item.split(
+            ":",
+            1
+        )
 
         try:
-            user_id = int(user_part.strip())
+
+            user_id = int(
+                user_part.strip()
+            )
+
         except Exception:
+
             logging.warning(
                 "Invalid blocked user: %s",
                 user_part
             )
+
             continue
 
         blocked = set()
 
         for target in targets_part.split(","):
+
             target = target.strip()
 
             if not target:
                 continue
 
             try:
-                blocked.add(int(target))
+
+                blocked.add(
+                    int(target)
+                )
+
             except Exception:
+
                 logging.warning(
                     "Invalid blocked target: %s",
                     target
                 )
 
         if blocked:
+
             result[user_id] = blocked
 
     return result
 
 
 USER_BLOCKED_TARGETS = parse_blocked_targets(
-    os.getenv("USER_BLOCKED_TARGETS", "")
+    os.getenv(
+        "USER_BLOCKED_TARGETS",
+        ""
+    )
 )
 
+
+# ============================================================
+# DATABASE
+# ============================================================
 
 db = sqlite3.connect(
     DB_FILE,
@@ -191,7 +266,9 @@ async def save_mapping(
     target_chat_id,
     target_msg_id
 ):
+
     async with db_lock:
+
         db.execute(
             """
             INSERT OR REPLACE INTO published_messages
@@ -212,30 +289,45 @@ async def save_mapping(
         db.commit()
 
 
-async def get_mappings(source_msg_id):
+async def get_mappings(
+    source_msg_id
+):
+
     async with db_lock:
+
         cursor = db.execute(
             """
             SELECT
                 target_chat_id,
                 target_msg_id
+
             FROM published_messages
+
             WHERE source_msg_id = ?
             """,
-            (source_msg_id,)
+            (
+                source_msg_id,
+            )
         )
 
         return cursor.fetchall()
 
 
-async def delete_all_mappings(source_msg_id):
+async def delete_all_mappings(
+    source_msg_id
+):
+
     async with db_lock:
+
         db.execute(
             """
             DELETE FROM published_messages
+
             WHERE source_msg_id = ?
             """,
-            (source_msg_id,)
+            (
+                source_msg_id,
+            )
         )
 
         db.commit()
@@ -254,7 +346,6 @@ bot_client = TelegramClient(
 
 # ============================================================
 # USER CLIENT
-# Dedicated account used for Send As
 # ============================================================
 
 USER_SESSION = os.getenv(
@@ -263,6 +354,7 @@ USER_SESSION = os.getenv(
 ).strip()
 
 if not USER_SESSION:
+
     raise RuntimeError(
         "USER_SESSION is required."
     )
@@ -279,9 +371,13 @@ user_client = TelegramClient(
 # TARGETS
 # ============================================================
 
-def get_targets_for_user(sender_id: Optional[int]):
+def get_targets_for_user(
+    sender_id: Optional[int]
+):
 
-    targets = list(TARGET_CHAT_IDS)
+    targets = list(
+        TARGET_CHAT_IDS
+    )
 
     if sender_id is not None:
 
@@ -290,10 +386,15 @@ def get_targets_for_user(sender_id: Optional[int]):
         )
 
         if personal:
-            targets.append(personal)
+
+            targets.append(
+                personal
+            )
 
     targets = list(
-        dict.fromkeys(targets)
+        dict.fromkeys(
+            targets
+        )
     )
 
     blocked = USER_BLOCKED_TARGETS.get(
@@ -304,6 +405,7 @@ def get_targets_for_user(sender_id: Optional[int]):
     targets = [
         target
         for target in targets
+
         if target not in blocked
     ]
 
@@ -343,7 +445,9 @@ async def send_with_send_as(
             e.seconds
         )
 
-        await asyncio.sleep(e.seconds)
+        await asyncio.sleep(
+            e.seconds
+        )
 
         try:
 
@@ -400,7 +504,9 @@ async def send_with_bot(
             e.seconds
         )
 
-        await asyncio.sleep(e.seconds)
+        await asyncio.sleep(
+            e.seconds
+        )
 
         try:
 
@@ -442,6 +548,7 @@ async def send_to_target(
     )
 
     if sent:
+
         return sent
 
     logging.info(
@@ -471,7 +578,10 @@ async def find_reply_target(
 
     for chat_id, target_msg_id in mappings:
 
-        if int(chat_id) == int(target_chat_id):
+        if int(chat_id) == int(
+            target_chat_id
+        ):
+
             return target_msg_id
 
     return None
@@ -491,11 +601,36 @@ async def publish_message(
 
     source_msg_id = message.id
 
+    # ========================================================
+    # LOCAL ONLY
+    #
+    # أي رسالة تبدأ بـ "." لا يتم نشرها
+    # في أي Target وتبقى فقط في SOURCE_CHAT_ID
+    # ========================================================
+
+    if (
+        message.text
+        and message.text.strip().startswith(".")
+    ):
+
+        logging.info(
+            "LOCAL ONLY MESSAGE -> %s | sender=%s",
+            source_msg_id,
+            sender_id
+        )
+
+        return
+
+    # ========================================================
+    # NORMAL TARGETS
+    # ========================================================
+
     targets = get_targets_for_user(
         sender_id
     )
 
     if not targets:
+
         return
 
     reply_source_id = None
@@ -507,6 +642,7 @@ async def publish_message(
             reply_msg = await message.get_reply_message()
 
             if reply_msg:
+
                 reply_source_id = reply_msg.id
 
     except Exception as e:
@@ -566,6 +702,7 @@ async def publish_message(
 def is_control_command(message):
 
     if not message or not message.text:
+
         return False
 
     try:
@@ -607,9 +744,11 @@ async def source_new_message(event):
         message = event.message
 
         if not message:
+
             return
 
         if is_control_command(message):
+
             return
 
         await publish_message(
@@ -640,9 +779,22 @@ async def source_message_edited(event):
         message = event.message
 
         if not message:
+
             return
 
         if is_control_command(message):
+
+            return
+
+        # ----------------------------------------------------
+        # الرسائل التي تبدأ بـ "." لا توجد لها نسخ Targets
+        # ----------------------------------------------------
+
+        if (
+            message.text
+            and message.text.strip().startswith(".")
+        ):
+
             return
 
         mappings = await get_mappings(
@@ -650,6 +802,7 @@ async def source_message_edited(event):
         )
 
         if not mappings:
+
             return
 
         for target_chat_id, target_msg_id in mappings:
@@ -669,6 +822,7 @@ async def source_message_edited(event):
                     edited = True
 
                 except Exception:
+
                     pass
 
                 if not edited:
@@ -724,19 +878,24 @@ async def source_message_deleted(event):
 
                         await user_client.delete_messages(
                             entity=target_chat_id,
-                            message_ids=[target_msg_id]
+                            message_ids=[
+                                target_msg_id
+                            ]
                         )
 
                         deleted = True
 
                     except Exception:
+
                         pass
 
                     if not deleted:
 
                         await bot_client.delete_messages(
                             entity=target_chat_id,
-                            message_ids=[target_msg_id]
+                            message_ids=[
+                                target_msg_id
+                            ]
                         )
 
                 except Exception as e:
@@ -771,9 +930,11 @@ async def source_message_deleted(event):
 async def command_id(event):
 
     if event.chat_id != SOURCE_CHAT_ID:
+
         return
 
     if event.sender_id not in ADMIN_IDS:
+
         return
 
     await event.reply(
@@ -794,9 +955,11 @@ async def command_id(event):
 async def command_status(event):
 
     if event.chat_id != SOURCE_CHAT_ID:
+
         return
 
     if event.sender_id not in ADMIN_IDS:
+
         return
 
     sender_id = event.sender_id
@@ -830,14 +993,13 @@ async def command_status(event):
             f"Personal channel: {personal}\n"
         )
 
-    await event.reply(text)
+    await event.reply(
+        text
+    )
 
 
 # ============================================================
 # /del
-# /del@Merchantdz_bot
-# /del 123456
-# Reply + /del
 # ============================================================
 
 @bot_client.on(
@@ -848,9 +1010,11 @@ async def command_status(event):
 async def command_delete(event):
 
     if event.chat_id != SOURCE_CHAT_ID:
+
         return
 
     if event.sender_id not in ADMIN_IDS:
+
         return
 
     source_msg_id = None
@@ -886,6 +1050,7 @@ async def command_delete(event):
                 replied = await event.get_reply_message()
 
                 if replied:
+
                     source_msg_id = replied.id
 
         except Exception as e:
@@ -901,10 +1066,13 @@ async def command_delete(event):
 
             await bot_client.delete_messages(
                 entity=SOURCE_CHAT_ID,
-                message_ids=[event.id]
+                message_ids=[
+                    event.id
+                ]
             )
 
         except Exception:
+
             pass
 
         return
@@ -923,19 +1091,24 @@ async def command_delete(event):
 
                 await user_client.delete_messages(
                     entity=target_chat_id,
-                    message_ids=[target_msg_id]
+                    message_ids=[
+                        target_msg_id
+                    ]
                 )
 
                 deleted = True
 
             except Exception:
+
                 pass
 
             if not deleted:
 
                 await bot_client.delete_messages(
                     entity=target_chat_id,
-                    message_ids=[target_msg_id]
+                    message_ids=[
+                        target_msg_id
+                    ]
                 )
 
             logging.info(
@@ -961,7 +1134,9 @@ async def command_delete(event):
 
         await bot_client.delete_messages(
             entity=SOURCE_CHAT_ID,
-            message_ids=[source_msg_id]
+            message_ids=[
+                source_msg_id
+            ]
         )
 
     except Exception as e:
@@ -975,10 +1150,13 @@ async def command_delete(event):
 
         await bot_client.delete_messages(
             entity=SOURCE_CHAT_ID,
-            message_ids=[event.id]
+            message_ids=[
+                event.id
+            ]
         )
 
     except Exception:
+
         pass
 
 
@@ -994,9 +1172,11 @@ async def command_delete(event):
 async def command_help(event):
 
     if event.chat_id != SOURCE_CHAT_ID:
+
         return
 
     if event.sender_id not in ADMIN_IDS:
+
         return
 
     await event.reply(
@@ -1008,7 +1188,10 @@ async def command_help(event):
         "/del 123456\n"
         "/help\n\n"
         "Reply to a post and send /del "
-        "to delete it everywhere."
+        "to delete it everywhere.\n\n"
+        ". message\n"
+        "Messages starting with '.' "
+        "stay only in the main group."
     )
 
 
@@ -1106,11 +1289,10 @@ if __name__ == "__main__":
 
         logging.info(
             "Stopped."
-
         )
 
     except Exception:
 
         logging.exception(
             "Fatal error"
-        ) 
+    )
