@@ -816,7 +816,7 @@ async def source_message_edited(event):
                     await user_client.edit_message(
                         entity=target_chat_id,
                         message=target_msg_id,
-                        text=message
+                        text=message.text
                     )
 
                     edited = True
@@ -830,7 +830,7 @@ async def source_message_edited(event):
                     await bot_client.edit_message(
                         entity=target_chat_id,
                         message=target_msg_id,
-                        text=message
+                        text=message.text
                     )
 
             except Exception as e:
@@ -1296,3 +1296,4 @@ if __name__ == "__main__":
         logging.exception(
             "Fatal error"
     )
+ 
