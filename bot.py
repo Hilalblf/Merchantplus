@@ -1,103 +1,235 @@
 import os
-import re
 import sqlite3
 import logging
 import asyncio
 from typing import Optional
 
 from dotenv import load_dotenv
-
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.tl.types import (
-    MessageEntityCustomEmoji,
-)
 from telethon.errors import FloodWaitError
 
-
-# ============================================================
-# CONFIG
-# ============================================================
-
 load_dotenv()
-
-API_ID = int(os.getenv("API_ID", "0"))
-API_HASH = os.getenv("API_HASH", "")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-
-OWNER_ID = int(os.getenv("OWNER_ID", "0"))
-
-SOURCE_CHAT_ID = int(
-    os.getenv("SOURCE_CHAT_ID", "0")
-)
-
-DB_FILE = os.getenv(
-    "DB_FILE",
-    "bot.db"
-)
-
-USER_SESSION = os.getenv(
-    "USER_SESSION",
-    ""
-)
-
-# Users allowed to manage the template
-TEMPLATE_ADMINS = {
-    int(x.strip())
-    for x in os.getenv(
-        "TEMPLATE_ADMINS",
-        ""
-    ).split(",")
-    if x.strip()
-}
-
-# Optional normal admins
-ADMIN_IDS = {
-    int(x.strip())
-    for x in os.getenv(
-        "ADMIN_IDS",
-        ""
-    ).split(",")
-    if x.strip()
-}
-
-# Target chats
-TARGET_CHAT_IDS = [
-    int(x.strip())
-    for x in os.getenv(
-        "TARGET_CHAT_IDS",
-        ""
-    ).split(",")
-    if x.strip()
-]
-
-
-# ============================================================
-# LOGGING
-# ============================================================
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
-log = logging.getLogger(__name__)
+
+def required(name):
+    value = os.getenv(name, "").strip()
+
+    if not value:
+        raise RuntimeError(
+            f"Missing required variable: {name}"
+        )
+
+    return value
+
+
+def integer(name):
+    try:
+        return int(required(name))
+
+    except Exception:
+        raise RuntimeError(
+            f"{name} must be a valid integer"
+        )
+
+
+def int_set(value):
+    result = set()
+
+    for item in value.split(","):
+
+        item = item.strip()
+
+        if not item:
+            continue
+
+        try:
+            result.add(int(item))
+
+        except Exception:
+            logging.warning(
+                "Invalid integer ignored: %s",
+                item
+            )
+
+    return result
 
 
 # ============================================================
-# CLIENTS
+# ENV VARIABLES
 # ============================================================
 
-bot_client = TelegramClient(
-    "bot_session",
-    API_ID,
-    API_HASH
+API_ID = integer("API_ID")
+API_HASH = required("API_HASH")
+BOT_TOKEN = required("BOT_TOKEN")
+
+OWNER_ID = integer("OWNER_ID")
+SOURCE_CHAT_ID = integer("SOURCE_CHAT_ID")
+
+DB_FILE = os.getenv(
+    "DB_FILE",
+    "lex_publisher_2.db"
+).strip()
+
+
+# ============================================================
+# ADMINS
+# ============================================================
+
+ADMIN_IDS = int_set(
+    os.getenv("ADMIN_IDS", "")
 )
 
-user_client = TelegramClient(
-    StringSession(USER_SESSION),
-    API_ID,
-    API_HASH
+ADMIN_IDS.add(OWNER_ID)
+
+
+# ============================================================
+# TARGET CHAT IDS
+# ============================================================
+
+TARGET_CHAT_IDS = list(
+    int_set(
+        os.getenv("TARGET_CHAT_IDS", "")
+    )
+)
+
+if not TARGET_CHAT_IDS:
+
+    raise RuntimeError(
+        "TARGET_CHAT_IDS is empty"
+    )
+
+
+# ============================================================
+# PERSONAL CHANNELS
+# ============================================================
+
+def parse_personal_channels(value):
+
+    result = {}
+
+    if not value:
+        return result
+
+    for item in value.split(";"):
+
+        item = item.strip()
+
+        if not item or ":" not in item:
+            continue
+
+        user_part, channel_part = item.split(
+            ":",
+            1
+        )
+
+        try:
+
+            user_id = int(
+                user_part.strip()
+            )
+
+            channel_id = int(
+                channel_part.strip()
+            )
+
+            result[user_id] = channel_id
+
+        except Exception:
+
+            logging.warning(
+                "Invalid PERSONAL_CHANNELS entry: %s",
+                item
+            )
+
+    return result
+
+
+PERSONAL_CHANNELS = parse_personal_channels(
+    os.getenv(
+        "PERSONAL_CHANNELS",
+        ""
+    )
+)
+
+
+# ============================================================
+# USER BLOCKED TARGETS
+# ============================================================
+
+def parse_blocked_targets(value):
+
+    result = {}
+
+    if not value:
+        return result
+
+    for item in value.split(";"):
+
+        item = item.strip()
+
+        if not item or ":" not in item:
+            continue
+
+        user_part, targets_part = item.split(
+            ":",
+            1
+        )
+
+        try:
+
+            user_id = int(
+                user_part.strip()
+            )
+
+        except Exception:
+
+            logging.warning(
+                "Invalid blocked user: %s",
+                user_part
+            )
+
+            continue
+
+        blocked = set()
+
+        for target in targets_part.split(","):
+
+            target = target.strip()
+
+            if not target:
+                continue
+
+            try:
+
+                blocked.add(
+                    int(target)
+                )
+
+            except Exception:
+
+                logging.warning(
+                    "Invalid blocked target: %s",
+                    target
+                )
+
+        if blocked:
+
+            result[user_id] = blocked
+
+    return result
+
+
+USER_BLOCKED_TARGETS = parse_blocked_targets(
+    os.getenv(
+        "USER_BLOCKED_TARGETS",
+        ""
+    )
 )
 
 
@@ -110,506 +242,206 @@ db = sqlite3.connect(
     check_same_thread=False
 )
 
-db.execute("""
-CREATE TABLE IF NOT EXISTS published_messages (
-    source_msg_id INTEGER,
-    target_chat_id INTEGER,
-    target_msg_id INTEGER,
-    PRIMARY KEY (
-        source_msg_id,
-        target_chat_id
+db.execute(
+    """
+    CREATE TABLE IF NOT EXISTS published_messages (
+        source_msg_id INTEGER NOT NULL,
+        target_chat_id INTEGER NOT NULL,
+        target_msg_id INTEGER NOT NULL,
+        PRIMARY KEY (
+            source_msg_id,
+            target_chat_id
+        )
     )
+    """
 )
-""")
-
-db.execute("""
-CREATE TABLE IF NOT EXISTS template_data (
-    id INTEGER PRIMARY KEY CHECK(id = 1),
-    source_msg_id INTEGER NOT NULL,
-    template_text TEXT NOT NULL
-)
-""")
-
-db.execute("""
-CREATE TABLE IF NOT EXISTS template_emojis (
-    source_msg_id INTEGER NOT NULL,
-    entity_offset INTEGER NOT NULL,
-    entity_length INTEGER NOT NULL,
-    custom_emoji_id INTEGER NOT NULL,
-    PRIMARY KEY (
-        source_msg_id,
-        entity_offset,
-        entity_length
-    )
-)
-""")
 
 db.commit()
 
+db_lock = asyncio.Lock()
 
-# ============================================================
-# DATABASE HELPERS
-# ============================================================
 
-def save_published(
-    source_msg_id: int,
-    target_chat_id: int,
-    target_msg_id: int
+async def save_mapping(
+    source_msg_id,
+    target_chat_id,
+    target_msg_id
 ):
-    db.execute(
-        """
-        INSERT OR REPLACE INTO published_messages
-        (
-            source_msg_id,
-            target_chat_id,
-            target_msg_id
-        )
-        VALUES (?, ?, ?)
-        """,
-        (
-            source_msg_id,
-            target_chat_id,
-            target_msg_id
-        )
-    )
 
-    db.commit()
-
-
-def get_published(
-    source_msg_id: int
-):
-    return db.execute(
-        """
-        SELECT target_chat_id, target_msg_id
-        FROM published_messages
-        WHERE source_msg_id = ?
-        """,
-        (source_msg_id,)
-    ).fetchall()
-
-
-def delete_published(
-    source_msg_id: int
-):
-    db.execute(
-        """
-        DELETE FROM published_messages
-        WHERE source_msg_id = ?
-        """,
-        (source_msg_id,)
-    )
-
-    db.commit()
-
-
-# ============================================================
-# UTF-16 HELPERS
-# Telegram offsets/lengths are UTF-16 based
-# ============================================================
-
-def utf16_len(text: str) -> int:
-    return len(
-        text.encode(
-            "utf-16-le"
-        )
-    ) // 2
-
-
-def utf16_to_py_index(
-    text: str,
-    utf16_offset: int
-) -> int:
-
-    current = 0
-
-    for i, char in enumerate(text):
-
-        size = utf16_len(char)
-
-        if current >= utf16_offset:
-            return i
-
-        current += size
-
-    return len(text)
-
-
-def entity_text(
-    text: str,
-    entity
-) -> str:
-
-    start = utf16_to_py_index(
-        text,
-        entity.offset
-    )
-
-    end = utf16_to_py_index(
-        text,
-        entity.offset + entity.length
-    )
-
-    return text[start:end]
-
-
-# ============================================================
-# TEMPLATE
-# ============================================================
-
-async def save_template(
-    message
-) -> bool:
-
-    text = message.raw_text or ""
-
-    if not text:
-        log.warning(
-            "Template message has no text."
-        )
-        return False
-
-    custom_emojis = []
-
-    for entity in message.entities or []:
-
-        if isinstance(
-            entity,
-            MessageEntityCustomEmoji
-        ):
-
-            custom_emojis.append(
-                entity
-            )
-
-    if not custom_emojis:
-
-        log.warning(
-            "Template message %s has NO custom emoji.",
-            message.id
-        )
-
-        return False
-
-    # Remove old template
-    db.execute(
-        "DELETE FROM template_emojis"
-    )
-
-    db.execute(
-        "DELETE FROM template_data"
-    )
-
-    # Save main template
-    db.execute(
-        """
-        INSERT INTO template_data
-        (
-            id,
-            source_msg_id,
-            template_text
-        )
-        VALUES (1, ?, ?)
-        """,
-        (
-            message.id,
-            text
-        )
-    )
-
-    # Save every Premium emoji
-    for entity in custom_emojis:
+    async with db_lock:
 
         db.execute(
             """
-            INSERT INTO template_emojis
+            INSERT OR REPLACE INTO published_messages
             (
                 source_msg_id,
-                entity_offset,
-                entity_length,
-                custom_emoji_id
+                target_chat_id,
+                target_msg_id
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?)
             """,
             (
-                message.id,
-                entity.offset,
-                entity.length,
-                entity.document_id
+                source_msg_id,
+                target_chat_id,
+                target_msg_id
             )
         )
 
-    db.commit()
-
-    log.info(
-        "TEMPLATE SAVED"
-    )
-
-    log.info(
-        "Message ID: %s",
-        message.id
-    )
-
-    log.info(
-        "Text: %r",
-        text
-    )
-
-    log.info(
-        "Custom emojis: %s",
-        len(custom_emojis)
-    )
-
-    return True
+        db.commit()
 
 
-def get_template():
-
-    row = db.execute(
-        """
-        SELECT source_msg_id, template_text
-        FROM template_data
-        WHERE id = 1
-        """
-    ).fetchone()
-
-    if not row:
-        return None
-
-    source_msg_id, template_text = row
-
-    rows = db.execute(
-        """
-        SELECT
-            entity_offset,
-            entity_length,
-            custom_emoji_id
-        FROM template_emojis
-        WHERE source_msg_id = ?
-        ORDER BY entity_offset ASC
-        """,
-        (source_msg_id,)
-    ).fetchall()
-
-    emojis = []
-
-    for (
-        offset,
-        length,
-        custom_emoji_id
-    ) in rows:
-
-        emojis.append(
-            {
-                "offset": offset,
-                "length": length,
-                "custom_emoji_id":
-                    custom_emoji_id
-            }
-        )
-
-    return {
-        "source_msg_id": source_msg_id,
-        "text": template_text,
-        "emojis": emojis
-    }
-
-
-# ============================================================
-# TEMPLATE EMOJI MAP
-# ============================================================
-
-def build_template_emoji_map(
-    template
+async def get_mappings(
+    source_msg_id
 ):
 
-    result = []
+    async with db_lock:
 
-    text = template["text"]
+        cursor = db.execute(
+            """
+            SELECT
+                target_chat_id,
+                target_msg_id
 
-    for item in template["emojis"]:
+            FROM published_messages
 
-        start = utf16_to_py_index(
-            text,
-            item["offset"]
-        )
-
-        end = utf16_to_py_index(
-            text,
-            item["offset"] +
-            item["length"]
-        )
-
-        visible = text[start:end]
-
-        result.append(
-            {
-                "visible": visible,
-                "custom_emoji_id":
-                    item["custom_emoji_id"],
-                "template_offset":
-                    item["offset"],
-                "template_length":
-                    item["length"]
-            }
-        )
-
-    return result
-
-
-# ============================================================
-# FIND VISIBLE EMOJIS IN FRIEND MESSAGE
-# ============================================================
-
-def find_occurrences(
-    text: str,
-    value: str,
-    start_from: int = 0
-):
-
-    results = []
-
-    if not value:
-        return results
-
-    position = start_from
-
-    while True:
-
-        index = text.find(
-            value,
-            position
-        )
-
-        if index == -1:
-            break
-
-        results.append(index)
-
-        position = (
-            index + len(value)
-        )
-
-    return results
-
-
-# ============================================================
-# APPLY TEMPLATE EMOJIS
-# ============================================================
-
-def apply_template(
-    new_text: str,
-    template
-):
-
-    if not new_text:
-        return new_text, []
-
-    emoji_map = build_template_emoji_map(
-        template
-    )
-
-    if not emoji_map:
-        return new_text, []
-
-    entities = []
-
-    search_position = 0
-
-    for emoji in emoji_map:
-
-        visible = emoji["visible"]
-
-        occurrences = find_occurrences(
-            new_text,
-            visible,
-            search_position
-        )
-
-        if not occurrences:
-            log.warning(
-                "Template emoji %r not found "
-                "in new message.",
-                visible
-            )
-
-            continue
-
-        py_index = occurrences[0]
-
-        # Continue searching after this emoji
-        search_position = (
-            py_index + len(visible)
-        )
-
-        utf16_offset = utf16_len(
-            new_text[:py_index]
-        )
-
-        utf16_length = utf16_len(
-            visible
-        )
-
-        entities.append(
-            MessageEntityCustomEmoji(
-                offset=utf16_offset,
-                length=utf16_length,
-                document_id=
-                    emoji["custom_emoji_id"]
+            WHERE source_msg_id = ?
+            """,
+            (
+                source_msg_id,
             )
         )
 
-    return new_text, entities
+        return cursor.fetchall()
+
+
+async def delete_all_mappings(
+    source_msg_id
+):
+
+    async with db_lock:
+
+        db.execute(
+            """
+            DELETE FROM published_messages
+
+            WHERE source_msg_id = ?
+            """,
+            (
+                source_msg_id,
+            )
+        )
+
+        db.commit()
 
 
 # ============================================================
-# CHECK IF MESSAGE ALREADY HAS CUSTOM EMOJI
+# BOT CLIENT
 # ============================================================
 
-def has_custom_emoji(
-    message
-) -> bool:
-
-    for entity in message.entities or []:
-
-        if isinstance(
-            entity,
-            MessageEntityCustomEmoji
-        ):
-            return True
-
-    return False
+bot_client = TelegramClient(
+    "lex_publisher_bot_2",
+    API_ID,
+    API_HASH
+)
 
 
 # ============================================================
-# SEND WITH PREMIUM USER
+# USER CLIENT
+# ============================================================
+
+USER_SESSION = os.getenv(
+    "USER_SESSION",
+    ""
+).strip()
+
+if not USER_SESSION:
+
+    raise RuntimeError(
+        "USER_SESSION is required."
+    )
+
+
+user_client = TelegramClient(
+    StringSession(USER_SESSION),
+    API_ID,
+    API_HASH
+)
+
+
+# ============================================================
+# TARGETS
+# ============================================================
+
+def get_targets_for_user(
+    sender_id: Optional[int]
+):
+
+    targets = list(
+        TARGET_CHAT_IDS
+    )
+
+    if sender_id is not None:
+
+        personal = PERSONAL_CHANNELS.get(
+            sender_id
+        )
+
+        if personal:
+
+            targets.append(
+                personal
+            )
+
+    targets = list(
+        dict.fromkeys(
+            targets
+        )
+    )
+
+    blocked = USER_BLOCKED_TARGETS.get(
+        sender_id,
+        set()
+    )
+
+    targets = [
+        target
+        for target in targets
+
+        if target not in blocked
+    ]
+
+    return targets
+
+
+# ============================================================
+# SEND AS
 # ============================================================
 
 async def send_with_send_as(
     target_chat_id,
-    text,
-    entities=None,
-    file=None,
+    message,
     reply_to=None
 ):
 
     try:
 
         sent = await user_client.send_message(
-            target_chat_id,
-            text,
-            formatting_entities=entities,
-            file=file,
+            entity=target_chat_id,
+            message=message,
             reply_to=reply_to,
             send_as=target_chat_id
+        )
+
+        logging.info(
+            "SEND AS SUCCESS -> %s",
+            target_chat_id
         )
 
         return sent
 
     except FloodWaitError as e:
 
-        log.warning(
-            "FloodWait: %s seconds",
+        logging.warning(
+            "USER FLOOD WAIT: %s seconds",
             e.seconds
         )
 
@@ -617,23 +449,142 @@ async def send_with_send_as(
             e.seconds
         )
 
-        return await user_client.send_message(
+        try:
+
+            sent = await user_client.send_message(
+                entity=target_chat_id,
+                message=message,
+                reply_to=reply_to,
+                send_as=target_chat_id
+            )
+
+            return sent
+
+        except Exception as retry_error:
+
+            logging.error(
+                "SEND AS RETRY FAILED -> %s: %s",
+                target_chat_id,
+                retry_error
+            )
+
+    except Exception as e:
+
+        logging.warning(
+            "SEND AS FAILED -> %s: %s",
             target_chat_id,
-            text,
-            formatting_entities=entities,
-            file=file,
-            reply_to=reply_to,
-            send_as=target_chat_id
+            e
         )
 
-    except Exception:
+    return None
 
-        log.exception(
-            "send_as failed for %s",
+
+# ============================================================
+# BOT FALLBACK
+# ============================================================
+
+async def send_with_bot(
+    target_chat_id,
+    message,
+    reply_to=None
+):
+
+    try:
+
+        return await bot_client.send_message(
+            entity=target_chat_id,
+            message=message,
+            reply_to=reply_to
+        )
+
+    except FloodWaitError as e:
+
+        logging.warning(
+            "BOT FLOOD WAIT: %s seconds",
+            e.seconds
+        )
+
+        await asyncio.sleep(
+            e.seconds
+        )
+
+        try:
+
+            return await bot_client.send_message(
+                entity=target_chat_id,
+                message=message,
+                reply_to=reply_to
+            )
+
+        except Exception as retry_error:
+
+            logging.error(
+                "BOT RETRY FAILED -> %s: %s",
+                target_chat_id,
+                retry_error
+            )
+
+    except Exception as e:
+
+        logging.error(
+            "BOT SEND FAILED -> %s: %s",
+            target_chat_id,
+            e
+        )
+
+    return None
+
+
+async def send_to_target(
+    target_chat_id,
+    message,
+    reply_to=None
+):
+
+    sent = await send_with_send_as(
+        target_chat_id,
+        message,
+        reply_to
+    )
+
+    if sent:
+
+        return sent
+
+    logging.info(
+        "USING BOT FALLBACK -> %s",
+        target_chat_id
+    )
+
+    return await send_with_bot(
+        target_chat_id,
+        message,
+        reply_to
+    )
+
+
+# ============================================================
+# REPLY MAPPING
+# ============================================================
+
+async def find_reply_target(
+    source_reply_msg_id,
+    target_chat_id
+):
+
+    mappings = await get_mappings(
+        source_reply_msg_id
+    )
+
+    for chat_id, target_msg_id in mappings:
+
+        if int(chat_id) == int(
             target_chat_id
-        )
+        ):
 
-        return None
+            return target_msg_id
+
+    return None
 
 
 # ============================================================
@@ -641,255 +592,144 @@ async def send_with_send_as(
 # ============================================================
 
 async def publish_message(
-    message
+    message,
+    sender_id=None
 ):
 
-    # --------------------------------------------------------
-    # Ignore commands/messages beginning with "."
-    # --------------------------------------------------------
+    if not message:
+        return
 
-    raw_text = message.raw_text or ""
+    source_msg_id = message.id
 
-    if raw_text.startswith("."):
+    # ========================================================
+    # LOCAL ONLY
+    #
+    # Ø£ÙŠ Ø±Ø³Ø§Ù„Ø© ØªØ¨Ø¯Ø£ Ø¨Ù€ "." Ù„Ø§ ÙŠØªÙ… Ù†Ø´Ø±Ù‡Ø§
+    # ÙÙŠ Ø£ÙŠ Target ÙˆØªØ¨Ù‚Ù‰ ÙÙ‚Ø· ÙÙŠ SOURCE_CHAT_ID
+    # ========================================================
 
-        log.info(
-            "Message %s starts with '.', "
-            "not publishing.",
-            message.id
+    if (
+        message.text
+        and message.text.strip().startswith(".")
+    ):
+
+        logging.info(
+            "LOCAL ONLY MESSAGE -> %s | sender=%s",
+            source_msg_id,
+            sender_id
         )
 
         return
 
+    # ========================================================
+    # NORMAL TARGETS
+    # ========================================================
 
-    sender_id = message.sender_id
-
-    log.info(
-        "NEW SOURCE MESSAGE"
-    )
-
-    log.info(
-        "Message ID: %s",
-        message.id
-    )
-
-    log.info(
-        "Sender ID: %s",
+    targets = get_targets_for_user(
         sender_id
     )
 
-    log.info(
-        "Text: %r",
-        raw_text
-    )
+    if not targets:
 
+        return
 
-    # --------------------------------------------------------
-    # Get current template
-    # --------------------------------------------------------
+    reply_source_id = None
 
-    template = get_template()
+    try:
 
-    final_text = raw_text
-    final_entities = list(
-        message.entities or []
-    )
+        if message.is_reply:
 
+            reply_msg = await message.get_reply_message()
 
-    # --------------------------------------------------------
-    # If user already sent custom emoji,
-    # keep them.
-    #
-    # Otherwise apply template.
-    # --------------------------------------------------------
+            if reply_msg:
 
-    if not has_custom_emoji(message):
+                reply_source_id = reply_msg.id
 
-        if template:
+    except Exception as e:
 
-            # Template admins are allowed
-            # to publish their own custom emoji.
-            if sender_id not in TEMPLATE_ADMINS:
-
-                (
-                    final_text,
-                    template_entities
-                ) = apply_template(
-                    raw_text,
-                    template
-                )
-
-                final_entities = (
-                    template_entities
-                )
-
-                log.info(
-                    "Template applied to "
-                    "message %s",
-                    message.id
-                )
-
-    else:
-
-        log.info(
-            "Message %s already has "
-            "custom emoji.",
-            message.id
+        logging.warning(
+            "REPLY DETECTION FAILED: %s",
+            e
         )
 
-
-    # --------------------------------------------------------
-    # Media
-    # --------------------------------------------------------
-
-    file = None
-
-    if message.media:
+    for target_chat_id in targets:
 
         try:
 
-            file = await message.download_media()
+            reply_to = None
 
-        except Exception:
+            if reply_source_id:
 
-            log.exception(
-                "Could not download media "
-                "from message %s",
-                message.id
-            )
-
-
-    # --------------------------------------------------------
-    # Reply source
-    # --------------------------------------------------------
-
-    reply_to_source = None
-
-    if message.reply_to_msg_id:
-
-        reply_to_source = (
-            message.reply_to_msg_id
-        )
-
-
-    # --------------------------------------------------------
-    # Publish to all targets
-    # --------------------------------------------------------
-
-    for target_chat_id in TARGET_CHAT_IDS:
-
-        try:
-
-            reply_to_target = None
-
-            if reply_to_source:
-
-                rows = get_published(
-                    reply_to_source
+                reply_to = await find_reply_target(
+                    reply_source_id,
+                    target_chat_id
                 )
 
-                for (
-                    saved_chat_id,
-                    saved_msg_id
-                ) in rows:
-
-                    if (
-                        saved_chat_id
-                        == target_chat_id
-                    ):
-
-                        reply_to_target = (
-                            saved_msg_id
-                        )
-
-                        break
-
-
-            sent = await send_with_send_as(
-                target_chat_id=
-                    target_chat_id,
-                text=final_text,
-                entities=final_entities,
-                file=file,
-                reply_to=reply_to_target
+            sent = await send_to_target(
+                target_chat_id,
+                message,
+                reply_to
             )
-
-
-            # ------------------------------------------------
-            # Bot fallback
-            # ------------------------------------------------
-
-            if not sent:
-
-                try:
-
-                    sent = await bot_client.send_message(
-                        target_chat_id,
-                        final_text,
-                        formatting_entities=
-                            final_entities,
-                        file=file,
-                        reply_to=
-                            reply_to_target
-                    )
-
-                except Exception:
-
-                    log.exception(
-                        "Bot fallback failed "
-                        "for %s",
-                        target_chat_id
-                    )
-
-                    continue
-
 
             if sent:
 
-                save_published(
-                    source_msg_id=
-                        message.id,
-                    target_chat_id=
-                        target_chat_id,
-                    target_msg_id=
-                        sent.id
-                )
-
-                log.info(
-                    "Published %s -> %s "
-                    "message=%s",
-                    message.id,
+                await save_mapping(
+                    source_msg_id,
                     target_chat_id,
                     sent.id
                 )
 
-        except Exception:
+                logging.info(
+                    "PUBLISHED %s -> %s -> %s",
+                    source_msg_id,
+                    target_chat_id,
+                    sent.id
+                )
 
-            log.exception(
-                "Publish failed "
-                "target=%s",
-                target_chat_id
+        except Exception as e:
+
+            logging.error(
+                "PUBLISH ERROR -> %s: %s",
+                target_chat_id,
+                e
             )
 
 
-    # --------------------------------------------------------
-    # Cleanup downloaded media
-    # --------------------------------------------------------
+# ============================================================
+# CONTROL COMMANDS
+# ============================================================
 
-    if file:
+def is_control_command(message):
 
-        try:
+    if not message or not message.text:
 
-            if os.path.isfile(file):
+        return False
 
-                os.remove(file)
+    try:
 
-        except Exception:
+        first_word = (
+            message.text
+            .strip()
+            .split()[0]
+            .lower()
+        )
 
-            pass
+    except Exception:
+
+        return False
+
+    return first_word.startswith(
+        (
+            "/del",
+            "/status",
+            "/id",
+            "/help"
+        )
+    )
 
 
 # ============================================================
-# SOURCE NEW MESSAGE
+# NEW MESSAGE
 # ============================================================
 
 @bot_client.on(
@@ -901,158 +741,30 @@ async def source_new_message(event):
 
     try:
 
-        # Ignore service messages
-        if not event.message:
+        message = event.message
+
+        if not message:
+
+            return
+
+        if is_control_command(message):
+
             return
 
         await publish_message(
-            event.message
+            message,
+            sender_id=event.sender_id
         )
 
     except Exception:
 
-        log.exception(
+        logging.exception(
             "SOURCE NEW MESSAGE ERROR"
         )
 
 
 # ============================================================
-# PIN DETECTION
-#
-# IMPORTANT:
-# ChatAction is the correct Telethon event
-# for detecting a new pin.
-# ============================================================
-
-@bot_client.on(
-    events.ChatAction(
-        chats=SOURCE_CHAT_ID
-    )
-)
-async def template_pin_handler(event):
-
-    try:
-
-        if not event.new_pin:
-            return
-
-
-        # ----------------------------------------------------
-        # Who pinned it?
-        # ----------------------------------------------------
-
-        pinner_id = None
-
-        try:
-
-            pinner_id = event.user_id
-
-        except Exception:
-
-            pass
-
-
-        log.info(
-            "=========================================="
-        )
-
-        log.info(
-            "PIN DETECTED -> pinner=%s",
-            pinner_id
-        )
-
-
-        # ----------------------------------------------------
-        # Only TEMPLATE_ADMINS can change template
-        # ----------------------------------------------------
-
-        if (
-            pinner_id is None
-            or
-            pinner_id not in TEMPLATE_ADMINS
-        ):
-
-            log.info(
-                "PIN IGNORED -> %s "
-                "is not TEMPLATE_ADMIN",
-                pinner_id
-            )
-
-            return
-
-
-        # ----------------------------------------------------
-        # Get the message that was pinned
-        # ----------------------------------------------------
-
-        pinned = await event.get_pinned_message()
-
-
-        if not pinned:
-
-            log.warning(
-                "PIN DETECTED BUT "
-                "MESSAGE NOT FOUND"
-            )
-
-            return
-
-
-        log.info(
-            "PINNED MESSAGE FOUND -> id=%s",
-            pinned.id
-        )
-
-
-        # ----------------------------------------------------
-        # Save as template
-        # ----------------------------------------------------
-
-        saved = await save_template(
-            pinned
-        )
-
-
-        if saved:
-
-            log.info(
-                "=========================================="
-            )
-
-            log.info(
-                "TEMPLATE UPDATED AUTOMATICALLY"
-            )
-
-            log.info(
-                "Template message: %s",
-                pinned.id
-            )
-
-            log.info(
-                "Pinned by: %s",
-                pinner_id
-            )
-
-            log.info(
-                "=========================================="
-            )
-
-        else:
-
-            log.warning(
-                "Pinned message has no "
-                "custom emoji."
-            )
-
-    except Exception:
-
-        log.exception(
-            "TEMPLATE PIN HANDLER ERROR"
-        )
-
-
-# ============================================================
-# EDIT SOURCE MESSAGE
+# EDIT
 # ============================================================
 
 @bot_client.on(
@@ -1066,112 +778,79 @@ async def source_message_edited(event):
 
         message = event.message
 
-        rows = get_published(
+        if not message:
+
+            return
+
+        if is_control_command(message):
+
+            return
+
+        # ----------------------------------------------------
+        # Ø§Ù„Ø±Ø³Ø§Ø¦Ù„ Ø§Ù„ØªÙŠ ØªØ¨Ø¯Ø£ Ø¨Ù€ "." Ù„Ø§ ØªÙˆØ¬Ø¯ Ù„Ù‡Ø§ Ù†Ø³Ø® Targets
+        # ----------------------------------------------------
+
+        if (
+            message.text
+            and message.text.strip().startswith(".")
+        ):
+
+            return
+
+        mappings = await get_mappings(
             message.id
         )
 
-        if not rows:
+        if not mappings:
+
             return
 
-
-        # ----------------------------------------------------
-        # Rebuild text/entities
-        # ----------------------------------------------------
-
-        raw_text = message.raw_text or ""
-
-        final_text = raw_text
-
-        final_entities = list(
-            message.entities or []
-        )
-
-
-        if not has_custom_emoji(message):
-
-            template = get_template()
-
-            if template:
-
-                (
-                    final_text,
-                    final_entities
-                ) = apply_template(
-                    raw_text,
-                    template
-                )
-
-
-        # ----------------------------------------------------
-        # Download media if necessary
-        # ----------------------------------------------------
-
-        file = None
-
-        if message.media:
+        for target_chat_id, target_msg_id in mappings:
 
             try:
 
-                file = await message.download_media()
+                edited = False
 
-            except Exception:
+                try:
 
-                log.exception(
-                    "Failed to download edited media"
-                )
+                    await user_client.edit_message(
+                        entity=target_chat_id,
+                        message=target_msg_id,
+                        text=message.text
+                    )
 
+                    edited = True
 
-        # ----------------------------------------------------
-        # Edit every published copy
-        # ----------------------------------------------------
+                except Exception:
 
-        for (
-            target_chat_id,
-            target_msg_id
-        ) in rows:
+                    pass
 
-            try:
+                if not edited:
 
-                await user_client.edit_message(
+                    await bot_client.edit_message(
+                        entity=target_chat_id,
+                        message=target_msg_id,
+                        text=message.text
+                    )
+
+            except Exception as e:
+
+                logging.error(
+                    "EDIT FAILED -> %s/%s: %s",
                     target_chat_id,
                     target_msg_id,
-                    final_text,
-                    formatting_entities=
-                        final_entities,
-                    file=file
+                    e
                 )
-
-            except Exception:
-
-                log.exception(
-                    "Failed editing "
-                    "target=%s msg=%s",
-                    target_chat_id,
-                    target_msg_id
-                )
-
-
-        if file:
-
-            try:
-
-                if os.path.isfile(file):
-
-                    os.remove(file)
-
-            except Exception:
-
-                pass
 
     except Exception:
 
-        log.exception(
+        logging.exception(
             "SOURCE EDIT ERROR"
         )
 
 
 # ============================================================
-# DELETE SOURCE MESSAGE
+# DELETE SOURCE
 # ============================================================
 
 @bot_client.on(
@@ -1185,189 +864,334 @@ async def source_message_deleted(event):
 
         for source_msg_id in event.deleted_ids:
 
-            rows = get_published(
+            mappings = await get_mappings(
                 source_msg_id
             )
 
-            for (
-                target_chat_id,
-                target_msg_id
-            ) in rows:
+            for target_chat_id, target_msg_id in mappings:
 
                 try:
 
-                    await user_client.delete_messages(
+                    deleted = False
+
+                    try:
+
+                        await user_client.delete_messages(
+                            entity=target_chat_id,
+                            message_ids=[
+                                target_msg_id
+                            ]
+                        )
+
+                        deleted = True
+
+                    except Exception:
+
+                        pass
+
+                    if not deleted:
+
+                        await bot_client.delete_messages(
+                            entity=target_chat_id,
+                            message_ids=[
+                                target_msg_id
+                            ]
+                        )
+
+                except Exception as e:
+
+                    logging.error(
+                        "DELETE FAILED -> %s/%s: %s",
                         target_chat_id,
-                        target_msg_id
+                        target_msg_id,
+                        e
                     )
 
-                except Exception:
-
-                    log.exception(
-                        "Failed deleting "
-                        "target=%s msg=%s",
-                        target_chat_id,
-                        target_msg_id
-                    )
-
-            delete_published(
+            await delete_all_mappings(
                 source_msg_id
             )
 
     except Exception:
 
-        log.exception(
+        logging.exception(
             "SOURCE DELETE ERROR"
         )
 
 
 # ============================================================
-# COMMAND: /id
+# /id
 # ============================================================
 
 @bot_client.on(
     events.NewMessage(
-        pattern=r"^/id$"
+        pattern=r"^/id(?:@\w+)?$"
     )
 )
 async def command_id(event):
 
+    if event.chat_id != SOURCE_CHAT_ID:
+
+        return
+
+    if event.sender_id not in ADMIN_IDS:
+
+        return
+
     await event.reply(
-        f"Chat ID: {event.chat_id}\n"
-        f"Your ID: {event.sender_id}"
+        f"Chat ID: `{event.chat_id}`\n"
+        f"User ID: `{event.sender_id}`"
     )
 
 
 # ============================================================
-# COMMAND: /status
+# /status
 # ============================================================
 
 @bot_client.on(
     events.NewMessage(
-        pattern=r"^/status$"
+        pattern=r"^/status(?:@\w+)?$"
     )
 )
 async def command_status(event):
 
-    template = get_template()
-
-    if not template:
-
-        await event.reply(
-            "❌ No template is currently saved."
-        )
+    if event.chat_id != SOURCE_CHAT_ID:
 
         return
 
+    if event.sender_id not in ADMIN_IDS:
 
-    emoji_count = len(
-        template["emojis"]
+        return
+
+    sender_id = event.sender_id
+
+    targets = get_targets_for_user(
+        sender_id
     )
 
+    blocked = USER_BLOCKED_TARGETS.get(
+        sender_id,
+        set()
+    )
+
+    personal = PERSONAL_CHANNELS.get(
+        sender_id
+    )
+
+    text = (
+        "LEX AUTO PUBLISHER PRO\n\n"
+        f"User: {sender_id}\n"
+        "Admin: True\n"
+        f"Allowed targets: {len(targets)}\n"
+        f"Blocked targets: {len(blocked)}\n"
+        f"Send As account connected: "
+        f"{user_client.is_connected()}\n"
+    )
+
+    if personal:
+
+        text += (
+            f"Personal channel: {personal}\n"
+        )
 
     await event.reply(
-        "✅ Template active\n\n"
-        f"Message ID: "
-        f"{template['source_msg_id']}\n"
-        f"Premium emojis: "
-        f"{emoji_count}\n\n"
-        "Pin a new message to replace it."
+        text
     )
 
 
 # ============================================================
-# COMMAND: /del
+# /del
 # ============================================================
 
 @bot_client.on(
     events.NewMessage(
-        pattern=r"^/del$"
+        pattern=r"^/del(?:@\w+)?(?:\s+(\d+))?$"
     )
 )
 async def command_delete(event):
 
-    if (
-        event.sender_id != OWNER_ID
-        and
-        event.sender_id not in ADMIN_IDS
-    ):
+    if event.chat_id != SOURCE_CHAT_ID:
 
         return
 
+    if event.sender_id not in ADMIN_IDS:
 
-    if not event.is_reply:
+        return
 
-        await event.reply(
-            "Reply to a source message "
-            "with /del"
+    source_msg_id = None
+
+    try:
+
+        message_id_text = (
+            event.pattern_match.group(1)
         )
 
-        return
+    except Exception:
 
+        message_id_text = None
 
-    replied = await event.get_reply_message()
-
-    if not replied:
-
-        return
-
-
-    rows = get_published(
-        replied.id
-    )
-
-
-    for (
-        target_chat_id,
-        target_msg_id
-    ) in rows:
+    if message_id_text:
 
         try:
 
-            await user_client.delete_messages(
-                target_chat_id,
-                target_msg_id
+            source_msg_id = int(
+                message_id_text
+            )
+
+        except Exception:
+
+            source_msg_id = None
+
+    if source_msg_id is None:
+
+        try:
+
+            if event.is_reply:
+
+                replied = await event.get_reply_message()
+
+                if replied:
+
+                    source_msg_id = replied.id
+
+        except Exception as e:
+
+            logging.error(
+                "REPLY DELETE DETECTION ERROR: %s",
+                e
+            )
+
+    if source_msg_id is None:
+
+        try:
+
+            await bot_client.delete_messages(
+                entity=SOURCE_CHAT_ID,
+                message_ids=[
+                    event.id
+                ]
             )
 
         except Exception:
 
             pass
 
+        return
 
-    delete_published(
-        replied.id
+    mappings = await get_mappings(
+        source_msg_id
     )
 
+    for target_chat_id, target_msg_id in mappings:
 
-    await event.reply(
-        "✅ Published copies deleted."
+        try:
+
+            deleted = False
+
+            try:
+
+                await user_client.delete_messages(
+                    entity=target_chat_id,
+                    message_ids=[
+                        target_msg_id
+                    ]
+                )
+
+                deleted = True
+
+            except Exception:
+
+                pass
+
+            if not deleted:
+
+                await bot_client.delete_messages(
+                    entity=target_chat_id,
+                    message_ids=[
+                        target_msg_id
+                    ]
+                )
+
+            logging.info(
+                "DELETED TARGET -> %s/%s",
+                target_chat_id,
+                target_msg_id
+            )
+
+        except Exception as e:
+
+            logging.error(
+                "TARGET DELETE ERROR -> %s/%s: %s",
+                target_chat_id,
+                target_msg_id,
+                e
+            )
+
+    await delete_all_mappings(
+        source_msg_id
     )
+
+    try:
+
+        await bot_client.delete_messages(
+            entity=SOURCE_CHAT_ID,
+            message_ids=[
+                source_msg_id
+            ]
+        )
+
+    except Exception as e:
+
+        logging.error(
+            "SOURCE DELETE ERROR: %s",
+            e
+        )
+
+    try:
+
+        await bot_client.delete_messages(
+            entity=SOURCE_CHAT_ID,
+            message_ids=[
+                event.id
+            ]
+        )
+
+    except Exception:
+
+        pass
 
 
 # ============================================================
-# COMMAND: /help
+# /help
 # ============================================================
 
 @bot_client.on(
     events.NewMessage(
-        pattern=r"^/help$"
+        pattern=r"^/help(?:@\w+)?$"
     )
 )
 async def command_help(event):
 
+    if event.chat_id != SOURCE_CHAT_ID:
+
+        return
+
+    if event.sender_id not in ADMIN_IDS:
+
+        return
+
     await event.reply(
-        "📌 Bot commands:\n\n"
-        "/id - show chat/user ID\n"
-        "/status - show current template\n"
-        "/del - delete published copies\n"
-        "/help - show this message\n\n"
-        "📌 Template:\n"
-        "Pin a message in the source group "
-        "using an allowed TEMPLATE_ADMIN.\n"
-        "That message becomes the template "
-        "automatically.\n\n"
-        "Messages beginning with . "
-        "stay only in the source group."
+        "LEX AUTO PUBLISHER PRO\n\n"
+        "/id\n"
+        "/status\n"
+        "/del\n"
+        "/del@Merchantdz_bot\n"
+        "/del 123456\n"
+        "/help\n\n"
+        "Reply to a post and send /del "
+        "to delete it everywhere.\n\n"
+        ". message\n"
+        "Messages starting with '.' "
+        "stay only in the main group."
     )
 
 
@@ -1375,153 +1199,79 @@ async def command_help(event):
 # STARTUP
 # ============================================================
 
-async def main():
+async def startup():
 
-    log.info(
-        "=========================================="
+    logging.info(
+        "======================================"
     )
 
-    log.info(
-        "Starting Telegram Publisher..."
+    logging.info(
+        "LEX AUTO PUBLISHER PRO - BOT 2"
     )
 
-    log.info(
-        "SOURCE_CHAT_ID = %s",
+    logging.info(
+        "Source: %s",
         SOURCE_CHAT_ID
     )
 
-    log.info(
-        "TARGET_CHAT_IDS = %s",
+    logging.info(
+        "Targets: %s",
         TARGET_CHAT_IDS
     )
 
-    log.info(
-        "TEMPLATE_ADMINS = %s",
-        TEMPLATE_ADMINS
+    logging.info(
+        "Admins: %s",
+        sorted(ADMIN_IDS)
     )
 
-    log.info(
-        "=========================================="
+    logging.info(
+        "Personal channels: %s",
+        PERSONAL_CHANNELS
+    )
+
+    logging.info(
+        "Blocked targets: %s",
+        USER_BLOCKED_TARGETS
+    )
+
+    logging.info(
+        "Database: %s",
+        DB_FILE
+    )
+
+    logging.info(
+        "USER_SESSION configured: %s",
+        bool(USER_SESSION)
+    )
+
+    logging.info(
+        "======================================"
     )
 
 
-    # --------------------------------------------------------
-    # Start bot
-    # --------------------------------------------------------
+# ============================================================
+# MAIN
+# ============================================================
+
+async def main():
 
     await bot_client.start(
         bot_token=BOT_TOKEN
     )
 
+    await user_client.connect()
 
-    # --------------------------------------------------------
-    # Start Premium user
-    # --------------------------------------------------------
-
-    if not USER_SESSION:
+    if not await user_client.is_user_authorized():
 
         raise RuntimeError(
-            "USER_SESSION is empty."
+            "USER_SESSION is invalid or expired."
         )
 
+    await startup()
 
-    await user_client.start()
-
-
-    # --------------------------------------------------------
-    # Get identities
-    # --------------------------------------------------------
-
-    bot_me = await bot_client.get_me()
-
-    user_me = await user_client.get_me()
-
-
-    log.info(
-        "BOT LOGIN: @%s (%s)",
-        getattr(
-            bot_me,
-            "username",
-            None
-        ),
-        bot_me.id
+    logging.info(
+        "BOT + USER SESSION RUNNING"
     )
-
-    log.info(
-        "USER LOGIN: @%s (%s)",
-        getattr(
-            user_me,
-            "username",
-            None
-        ),
-        user_me.id
-    )
-
-
-    # --------------------------------------------------------
-    # Check source
-    # --------------------------------------------------------
-
-    try:
-
-        source = await bot_client.get_entity(
-            SOURCE_CHAT_ID
-        )
-
-        log.info(
-            "SOURCE RESOLVED: %s",
-            getattr(
-                source,
-                "title",
-                SOURCE_CHAT_ID
-            )
-        )
-
-    except Exception:
-
-        log.exception(
-            "Could not resolve SOURCE_CHAT_ID"
-        )
-
-
-    # --------------------------------------------------------
-    # Show current template
-    # --------------------------------------------------------
-
-    template = get_template()
-
-    if template:
-
-        log.info(
-            "Existing template loaded."
-        )
-
-        log.info(
-            "Template message ID: %s",
-            template["source_msg_id"]
-        )
-
-        log.info(
-            "Template emoji count: %s",
-            len(template["emojis"])
-        )
-
-    else:
-
-        log.info(
-            "No template saved yet."
-        )
-
-        log.info(
-            "Pin a message in SOURCE_CHAT_ID "
-            "using a TEMPLATE_ADMIN."
-        )
-
-
-    log.info(
-        "BOT IS RUNNING."
-    )
-
 
     await asyncio.gather(
         bot_client.run_until_disconnected(),
@@ -1529,26 +1279,21 @@ async def main():
     )
 
 
-# ============================================================
-# RUN
-# ============================================================
-
 if __name__ == "__main__":
 
     try:
 
-        asyncio.run(
-            main()
-        )
+        asyncio.run(main())
 
     except KeyboardInterrupt:
 
-        log.info(
+        logging.info(
             "Stopped."
         )
 
     except Exception:
 
-        log.exception(
-            "FATAL ERROR"
-    ) 
+        logging.exception(
+            "Fatal error"
+    )
+  
